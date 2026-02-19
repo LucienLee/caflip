@@ -93,7 +93,14 @@ Using aliases:
 - `ccflip list` output includes aliases: `2: lucien@aibor.io [work] (active)`
 - Interactive picker shows aliases: `2: lucien@aibor.io [work]`
 
-Storage: aliases are stored in the `alias` field of each account entry in `sequence.json`. Aliases must be unique across all accounts and cannot collide with subcommand names (list, add, remove, next, status, alias).
+Storage: aliases are stored in the `alias` field of each account entry in `sequence.json`.
+
+Alias validation rules:
+- Must be unique across all accounts
+- Cannot collide with subcommand names: list, add, remove, next, status, alias, help
+- Only lowercase letters, numbers, and hyphens allowed (`/^[a-z][a-z0-9-]*$/`)
+- Cannot be purely numeric (to avoid confusion with account numbers)
+- Minimum 2 characters
 
 ## Shell Prompt Integration
 
