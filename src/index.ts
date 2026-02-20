@@ -58,10 +58,18 @@ function getCurrentAccount(): string {
 }
 
 // Perform the actual account switch.
-async function performSwitch(
+export async function performSwitch(
   seq: SequenceData,
   targetAccount: string
 ): Promise<void> {
+  // Skip if already on the target account.
+  if (String(seq.activeAccountNumber) === targetAccount) {
+    const account = seq.accounts[targetAccount];
+    const aliasStr = account.alias ? ` [${account.alias}]` : "";
+    console.log(`Already using Account-${targetAccount} (${account.email})${aliasStr}`);
+    return;
+  }
+
   const currentAccount = String(seq.activeAccountNumber);
   const targetEmail = seq.accounts[targetAccount].email;
   const currentEmail = getCurrentAccount();
@@ -472,9 +480,11 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(`Error: ${err.message}`);
-  // Clean up lock on crash
-  releaseLock(LOCK_DIR);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`Error: ${err.message}`);
+    // Clean up lock on crash
+    releaseLock(LOCK_DIR);
+    process.exit(1);
+  });
+}
