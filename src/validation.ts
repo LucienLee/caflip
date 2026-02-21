@@ -5,6 +5,7 @@ import { RESERVED_COMMANDS } from "./config";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const ALIAS_REGEX = /^[a-z][a-z0-9-]*$/;
+const ACCOUNT_NUMBER_REGEX = /^\d+$/;
 
 export function validateEmail(email: string): boolean {
   return EMAIL_REGEX.test(email);
@@ -16,6 +17,10 @@ export function sanitizeEmailForFilename(email: string): boolean {
     return false;
   }
   return true;
+}
+
+export function validateAccountNumber(accountNum: string): boolean {
+  return ACCOUNT_NUMBER_REGEX.test(accountNum);
 }
 
 export interface AliasValidationResult {

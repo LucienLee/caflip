@@ -2,7 +2,7 @@
 // ABOUTME: Defines paths, reserved commands, and Claude config file resolution.
 
 import { homedir } from "os";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 export type Platform = "macos" | "linux" | "wsl" | "windows" | "unknown";
@@ -42,9 +42,7 @@ export function getClaudeConfigPath(): string {
 
   if (existsSync(primary)) {
     try {
-      const content = JSON.parse(
-        require("fs").readFileSync(primary, "utf-8")
-      );
+      const content = JSON.parse(readFileSync(primary, "utf-8"));
       if (content.oauthAccount) {
         return primary;
       }

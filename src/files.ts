@@ -3,6 +3,7 @@
 
 import { existsSync, mkdirSync, rmSync, chmodSync, renameSync, writeFileSync } from "fs";
 import { dirname } from "path";
+import { randomBytes } from "crypto";
 
 // Write JSON atomically: write to temp file, validate, then rename into place.
 export async function writeJsonAtomic(
@@ -18,10 +19,11 @@ export async function writeJsonAtomic(
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  chmodSync(dir, 0o700);
 
-  const tempFile = `${filePath}.${Date.now()}.tmp`;
+  const tempFile = `${filePath}.${Date.now()}.${randomBytes(8).toString("hex")}.tmp`;
   try {
-    writeFileSync(tempFile, jsonStr, { mode: 0o600 });
+    writeFileSync(tempFile, jsonStr, { mode: 0o600, flag: "wx" });
     renameSync(tempFile, filePath);
     chmodSync(filePath, 0o600);
   } catch (err) {

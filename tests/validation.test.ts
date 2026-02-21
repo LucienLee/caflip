@@ -2,7 +2,12 @@
 // ABOUTME: Covers valid/invalid inputs, path traversal prevention, and reserved name checks.
 
 import { describe, expect, test } from "bun:test";
-import { validateEmail, sanitizeEmailForFilename, validateAlias } from "../src/validation";
+import {
+  validateEmail,
+  sanitizeEmailForFilename,
+  validateAlias,
+  validateAccountNumber,
+} from "../src/validation";
 
 describe("validateEmail", () => {
   test("accepts valid emails", () => {
@@ -83,5 +88,19 @@ describe("validateAlias", () => {
 
     const result2 = validateAlias("-work");
     expect(result2.valid).toBe(false);
+  });
+});
+
+describe("validateAccountNumber", () => {
+  test("accepts numeric account numbers", () => {
+    expect(validateAccountNumber("1")).toBe(true);
+    expect(validateAccountNumber("42")).toBe(true);
+  });
+
+  test("rejects non-numeric account numbers", () => {
+    expect(validateAccountNumber("1a")).toBe(false);
+    expect(validateAccountNumber("../1")).toBe(false);
+    expect(validateAccountNumber("1/2")).toBe(false);
+    expect(validateAccountNumber("")).toBe(false);
   });
 });

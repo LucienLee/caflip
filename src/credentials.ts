@@ -1,19 +1,118 @@
 // ABOUTME: Platform-specific credential and config storage for Claude Code accounts.
 // ABOUTME: Uses macOS Keychain (security CLI) on macOS and file-based storage on Linux/WSL.
 
-import { existsSync, readFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, chmodSync, rmSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { detectPlatform, CREDENTIALS_DIR } from "./config";
 import { writeJsonAtomic } from "./files";
-import { sanitizeEmailForFilename } from "./validation";
+import { sanitizeEmailForFilename, validateAccountNumber } from "./validation";
 
-// Run a shell command and return stdout, or empty string on failure.
-async function exec(cmd: string[]): Promise<string> {
+interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+async function runCommand(cmd: string[]): Promise<CommandResult> {
   const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const output = await new Response(proc.stdout).text();
-  await proc.exited;
-  return output.trim();
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+}
+
+function isSecurityItemMissing(stderr: string): boolean {
+  const msg = stderr.toLowerCase();
+  return (
+    msg.includes("could not be found") ||
+    msg.includes("item could not be found") ||
+    msg.includes("item not found")
+  );
+}
+
+function ensureAccountNumberSafe(accountNum: string): void {
+  if (!validateAccountNumber(accountNum)) {
+    throw new Error(`Unsafe account number for filename: ${accountNum}`);
+  }
+}
+
+function hasSecretTool(): boolean {
+  return Boolean(Bun.which("secret-tool"));
+}
+
+function activeSecretToolAttrs(): string[] {
+  return ["service", "claude-code", "account", "active"];
+}
+
+function backupSecretToolAttrs(accountNum: string, email: string): string[] {
+  return ["service", "ccflip", "account", accountNum, "email", email];
+}
+
+async function secretToolLookup(attrs: string[]): Promise<string> {
+  const result = await runCommand(["secret-tool", "lookup", ...attrs]);
+  if (result.exitCode === 0) {
+    return result.stdout;
+  }
+  return "";
+}
+
+async function secretToolStore(attrs: string[], secret: string): Promise<void> {
+  const proc = Bun.spawn(["secret-tool", "store", "--label", "ccflip credentials", ...attrs], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (!proc.stdin) {
+    throw new Error("Failed to open stdin for secret-tool");
+  }
+
+  const payload = secret.endsWith("\n") ? secret : `${secret}\n`;
+  const stdin = proc.stdin as unknown as {
+    write?: (data: string | Uint8Array) => unknown;
+    end?: () => unknown;
+    getWriter?: () => WritableStreamDefaultWriter<Uint8Array>;
+  };
+
+  if (typeof stdin.write === "function") {
+    stdin.write(payload);
+    if (typeof stdin.end === "function") {
+      stdin.end();
+    }
+  } else if (typeof stdin.getWriter === "function") {
+    const writer = stdin.getWriter();
+    await writer.write(new TextEncoder().encode(payload));
+    await writer.close();
+  } else {
+    throw new Error("Unsupported stdin interface for secret-tool");
+  }
+
+  const [stderr, exitCode] = await Promise.all([
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(
+      `Failed to store credentials in secret-tool: ${
+        stderr.trim() || `exit code ${exitCode}`
+      }`
+    );
+  }
+}
+
+async function secretToolClear(attrs: string[]): Promise<void> {
+  const result = await runCommand(["secret-tool", "clear", ...attrs]);
+  if (result.exitCode !== 0 && result.stderr.trim()) {
+    throw new Error(
+      `Failed to clear credentials from secret-tool: ${
+        result.stderr || `exit code ${result.exitCode}`
+      }`
+    );
+  }
 }
 
 // Read the active Claude Code credentials.
@@ -22,16 +121,34 @@ export async function readCredentials(): Promise<string> {
 
   switch (platform) {
     case "macos": {
-      return exec([
+      const result = await runCommand([
         "security",
         "find-generic-password",
         "-s",
         "Claude Code-credentials",
         "-w",
       ]);
+      if (result.exitCode === 0) {
+        return result.stdout;
+      }
+      if (isSecurityItemMissing(result.stderr)) {
+        return "";
+      }
+      throw new Error(
+        `Failed to read active credentials from keychain: ${
+          result.stderr || `exit code ${result.exitCode}`
+        }`
+      );
     }
     case "linux":
     case "wsl": {
+      if (hasSecretTool()) {
+        const keyringValue = await secretToolLookup(activeSecretToolAttrs());
+        if (keyringValue) {
+          return keyringValue;
+        }
+      }
+
       const credPath = join(homedir(), ".claude", ".credentials.json");
       if (existsSync(credPath)) {
         return readFileSync(credPath, "utf-8");
@@ -49,7 +166,7 @@ export async function writeCredentials(credentials: string): Promise<void> {
 
   switch (platform) {
     case "macos": {
-      const proc = Bun.spawn(
+      const result = await runCommand(
         [
           "security",
           "add-generic-password",
@@ -61,17 +178,29 @@ export async function writeCredentials(credentials: string): Promise<void> {
           "-w",
           credentials,
         ],
-        { stdout: "pipe", stderr: "pipe" }
       );
-      await proc.exited;
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `Failed to write active credentials to keychain: ${
+            result.stderr || `exit code ${result.exitCode}`
+          }`
+        );
+      }
       break;
     }
     case "linux":
     case "wsl": {
+      if (hasSecretTool()) {
+        await secretToolStore(activeSecretToolAttrs(), credentials);
+        return;
+      }
+
       const claudeDir = join(homedir(), ".claude");
-      mkdirSync(claudeDir, { recursive: true });
+      mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
+      chmodSync(claudeDir, 0o700);
       const credPath = join(claudeDir, ".credentials.json");
       await Bun.write(credPath, credentials, { mode: 0o600 } as any);
+      chmodSync(credPath, 0o600);
       break;
     }
   }
@@ -82,6 +211,7 @@ export async function readAccountCredentials(
   accountNum: string,
   email: string
 ): Promise<string> {
+  ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
     throw new Error(`Unsafe email for filename: ${email}`);
   }
@@ -90,16 +220,36 @@ export async function readAccountCredentials(
 
   switch (platform) {
     case "macos": {
-      return exec([
+      const result = await runCommand([
         "security",
         "find-generic-password",
         "-s",
         `Claude Code-Account-${accountNum}-${email}`,
         "-w",
       ]);
+      if (result.exitCode === 0) {
+        return result.stdout;
+      }
+      if (isSecurityItemMissing(result.stderr)) {
+        return "";
+      }
+      throw new Error(
+        `Failed to read account credentials from keychain: ${
+          result.stderr || `exit code ${result.exitCode}`
+        }`
+      );
     }
     case "linux":
     case "wsl": {
+      if (hasSecretTool()) {
+        const keyringValue = await secretToolLookup(
+          backupSecretToolAttrs(accountNum, email)
+        );
+        if (keyringValue) {
+          return keyringValue;
+        }
+      }
+
       const credFile = join(
         CREDENTIALS_DIR,
         `.claude-credentials-${accountNum}-${email}.json`
@@ -120,6 +270,7 @@ export async function writeAccountCredentials(
   email: string,
   credentials: string
 ): Promise<void> {
+  ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
     throw new Error(`Unsafe email for filename: ${email}`);
   }
@@ -128,7 +279,7 @@ export async function writeAccountCredentials(
 
   switch (platform) {
     case "macos": {
-      const proc = Bun.spawn(
+      const result = await runCommand(
         [
           "security",
           "add-generic-password",
@@ -140,18 +291,29 @@ export async function writeAccountCredentials(
           "-w",
           credentials,
         ],
-        { stdout: "pipe", stderr: "pipe" }
       );
-      await proc.exited;
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `Failed to write account credentials to keychain: ${
+            result.stderr || `exit code ${result.exitCode}`
+          }`
+        );
+      }
       break;
     }
     case "linux":
     case "wsl": {
+      if (hasSecretTool()) {
+        await secretToolStore(backupSecretToolAttrs(accountNum, email), credentials);
+        return;
+      }
+
       const credFile = join(
         CREDENTIALS_DIR,
         `.claude-credentials-${accountNum}-${email}.json`
       );
       mkdirSync(CREDENTIALS_DIR, { recursive: true, mode: 0o700 });
+      chmodSync(CREDENTIALS_DIR, 0o700);
       // Credentials are JSON, use atomic write
       const parsed = JSON.parse(credentials);
       await writeJsonAtomic(credFile, parsed);
@@ -165,6 +327,7 @@ export async function deleteAccountCredentials(
   accountNum: string,
   email: string
 ): Promise<void> {
+  ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
     throw new Error(`Unsafe email for filename: ${email}`);
   }
@@ -173,21 +336,28 @@ export async function deleteAccountCredentials(
 
   switch (platform) {
     case "macos": {
-      const proc = Bun.spawn(
+      const result = await runCommand(
         [
           "security",
           "delete-generic-password",
           "-s",
           `Claude Code-Account-${accountNum}-${email}`,
         ],
-        { stdout: "pipe", stderr: "pipe" }
       );
-      await proc.exited;
+      if (result.exitCode !== 0 && !isSecurityItemMissing(result.stderr)) {
+        throw new Error(
+          `Failed to delete account credentials from keychain: ${
+            result.stderr || `exit code ${result.exitCode}`
+          }`
+        );
+      }
       break;
     }
     case "linux":
     case "wsl": {
-      const { rmSync } = await import("fs");
+      if (hasSecretTool()) {
+        await secretToolClear(backupSecretToolAttrs(accountNum, email));
+      }
       const credFile = join(
         CREDENTIALS_DIR,
         `.claude-credentials-${accountNum}-${email}.json`
@@ -204,6 +374,7 @@ export function readAccountConfig(
   email: string,
   configsDir: string
 ): string {
+  ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
     throw new Error(`Unsafe email for filename: ${email}`);
   }
@@ -224,6 +395,7 @@ export async function writeAccountConfig(
   config: string,
   configsDir: string
 ): Promise<void> {
+  ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
     throw new Error(`Unsafe email for filename: ${email}`);
   }
@@ -242,10 +414,10 @@ export function deleteAccountConfig(
   email: string,
   configsDir: string
 ): void {
+  ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
     throw new Error(`Unsafe email for filename: ${email}`);
   }
-  const { rmSync } = require("fs");
   const configFile = join(
     configsDir,
     `.claude-config-${accountNum}-${email}.json`

@@ -11,7 +11,7 @@ Say you have a personal Claude Max account and a work account with API access. c
 | Platform | Credential Storage |
 |---|---|
 | macOS | System Keychain |
-| Linux | File-based (owner-only access) |
+| Linux | `secret-tool` keyring (preferred), file-based fallback (owner-only access) |
 | WSL | Same as Linux |
 | Windows | Not yet supported |
 
