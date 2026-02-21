@@ -17,13 +17,34 @@ Say you have a personal Claude Max account and a work account with API access. c
 
 ## Install
 
-Requires [Bun](https://bun.sh/):
+### Download binary (no dependencies)
+
+Grab the latest binary for your platform from [Releases](https://github.com/LucienLee/ccflip/releases/latest):
 
 ```bash
-curl -fsSL https://bun.sh/install | bash
+# macOS (Apple Silicon)
+curl -Lo ccflip https://github.com/LucienLee/ccflip/releases/latest/download/ccflip-darwin-arm64
+
+# macOS (Intel)
+curl -Lo ccflip https://github.com/LucienLee/ccflip/releases/latest/download/ccflip-darwin-x64
+
+# Linux (x64)
+curl -Lo ccflip https://github.com/LucienLee/ccflip/releases/latest/download/ccflip-linux-x64
+
+# Linux (arm64)
+curl -Lo ccflip https://github.com/LucienLee/ccflip/releases/latest/download/ccflip-linux-arm64
 ```
 
-Then:
+Then make it executable and move it to your PATH:
+
+```bash
+chmod +x ccflip
+sudo mv ccflip /usr/local/bin/
+```
+
+### Install via Bun
+
+If you already have [Bun](https://bun.sh/) installed:
 
 ```bash
 bun install -g ccflip
