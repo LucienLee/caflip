@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# compiled binary
+/ccflip
+
 # code coverage
 coverage
 *.lcov

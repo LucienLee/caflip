@@ -6,6 +6,7 @@
     "ccflip": "./src/index.ts"
   },
   "scripts": {
+    "build": "bun build --compile src/index.ts --outfile ccflip",
     "start": "bun run src/index.ts",
     "test": "bun test"
   },
