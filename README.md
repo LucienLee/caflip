@@ -1,10 +1,13 @@
 # ccflip
 
-Multi-account switcher for Claude Code.
+A super lightweight multi-account interactive switcher for Claude Code.
+
+![ccflip interactive account picker](./docs/demo.png)
 
 ccflip swaps authentication credentials between Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same. One shared environment, multiple accounts.
 
 Say you have a personal Claude Max account and a work account with API access. ccflip lets you flip between them while keeping your carefully set up Claude Code config intact.
+
 
 ## Platform Support
 
