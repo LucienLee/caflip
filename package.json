@@ -3,10 +3,19 @@
   "version": "0.1.1",
   "type": "module",
   "bin": {
-    "ccflip": "./src/index.ts"
+    "ccflip": "bin/ccflip"
   },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "install.sh"
+  ],
   "scripts": {
     "build": "bun build --compile src/index.ts --outfile ccflip",
+    "buildjs": "bun build src/index.ts --target=node --outfile dist/cli.js",
+    "dev": "bun run src/index.ts",
+    "prepublishOnly": "bun test && bun run buildjs",
     "start": "bun run src/index.ts",
     "test": "bun test"
   },

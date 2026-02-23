@@ -26,10 +26,22 @@ Say you have a personal Claude Max account and a work account with API access. c
 curl -fsSL https://raw.githubusercontent.com/LucienLee/ccflip/main/install.sh | bash
 ```
 
+### Via npm (Node.js)
+
+```bash
+npm install -g ccflip
+```
+
 ### Via Bun
 
 ```bash
 bun install -g ccflip
+```
+
+### Local Development
+
+```bash
+bun run dev -- help
 ```
 
 ## Quick Start

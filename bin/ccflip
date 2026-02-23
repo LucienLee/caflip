@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+set -e
+
+# Resolve symlinks so global shims (e.g. ~/.bun/bin/ccflip) work correctly.
+SCRIPT="$0"
+while [ -h "$SCRIPT" ]; do
+  LINK_DIR="$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)"
+  LINK_TARGET="$(readlink "$SCRIPT")"
+  case "$LINK_TARGET" in
+    /*) SCRIPT="$LINK_TARGET" ;;
+    *) SCRIPT="$LINK_DIR/$LINK_TARGET" ;;
+  esac
+done
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)"
+SRC_CLI="$SCRIPT_DIR/../src/index.ts"
+CLI="$SCRIPT_DIR/../dist/cli.js"
+
+# Local development mode: if source exists, run latest TS directly with Bun.
+if [ -f "$SRC_CLI" ] && command -v bun >/dev/null 2>&1; then
+  exec bun "$SRC_CLI" "$@"
+fi
+
+if [ -f "$CLI" ] && command -v node >/dev/null 2>&1; then
+  exec node "$CLI" "$@"
+fi
+
+if [ -f "$CLI" ] && command -v bun >/dev/null 2>&1; then
+  exec bun "$CLI" "$@"
+fi
+
+echo "ccflip requires Node.js or Bun in PATH." >&2
+exit 1
