@@ -1,6 +1,6 @@
 // ABOUTME: Core accounts module managing sequence.json for multi-account CRUD operations.
 // ABOUTME: Handles account addition, removal, sequence rotation, identifier resolution, and aliases.
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { writeJsonAtomic } from "./files";
 
 export interface Account {
@@ -29,8 +29,7 @@ export async function initSequenceFile(path: string): Promise<void> {
 }
 
 export async function loadSequence(path: string): Promise<SequenceData> {
-  const file = Bun.file(path);
-  return (await file.json()) as SequenceData;
+  return JSON.parse(readFileSync(path, "utf-8")) as SequenceData;
 }
 
 export function getNextAccountNumber(seq: SequenceData): number {

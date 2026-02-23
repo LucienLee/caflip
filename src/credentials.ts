@@ -1,9 +1,10 @@
 // ABOUTME: Platform-specific credential and config storage for Claude Code accounts.
 // ABOUTME: Uses macOS Keychain (security CLI) on macOS and file-based storage on Linux/WSL.
 
-import { existsSync, readFileSync, mkdirSync, chmodSync, rmSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, chmodSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { spawn, spawnSync } from "child_process";
 import { detectPlatform, CREDENTIALS_DIR } from "./config";
 import { writeJsonAtomic } from "./files";
 import { sanitizeEmailForFilename, validateAccountNumber } from "./validation";
@@ -15,13 +16,43 @@ interface CommandResult {
 }
 
 async function runCommand(cmd: string[]): Promise<CommandResult> {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+  return await runCommandWithInput(cmd);
+}
+
+async function runCommandWithInput(
+  cmd: string[],
+  input?: string
+): Promise<CommandResult> {
+  return await new Promise((resolve, reject) => {
+    const proc = spawn(cmd[0], cmd.slice(1), {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    proc.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    proc.on("error", (err) => {
+      reject(err);
+    });
+    proc.on("close", (code) => {
+      resolve({
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        exitCode: code ?? 1,
+      });
+    });
+
+    if (input && proc.stdin) {
+      proc.stdin.write(input);
+    }
+    proc.stdin?.end();
+  });
 }
 
 function isSecurityItemMissing(stderr: string): boolean {
@@ -40,7 +71,10 @@ function ensureAccountNumberSafe(accountNum: string): void {
 }
 
 function hasSecretTool(): boolean {
-  return Boolean(Bun.which("secret-tool"));
+  const result = spawnSync("sh", ["-c", "command -v secret-tool >/dev/null 2>&1"], {
+    stdio: "ignore",
+  });
+  return result.status === 0;
 }
 
 function activeSecretToolAttrs(): string[] {
@@ -60,45 +94,16 @@ async function secretToolLookup(attrs: string[]): Promise<string> {
 }
 
 async function secretToolStore(attrs: string[], secret: string): Promise<void> {
-  const proc = Bun.spawn(["secret-tool", "store", "--label", "ccflip credentials", ...attrs], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (!proc.stdin) {
-    throw new Error("Failed to open stdin for secret-tool");
-  }
-
   const payload = secret.endsWith("\n") ? secret : `${secret}\n`;
-  const stdin = proc.stdin as unknown as {
-    write?: (data: string | Uint8Array) => unknown;
-    end?: () => unknown;
-    getWriter?: () => WritableStreamDefaultWriter<Uint8Array>;
-  };
+  const result = await runCommandWithInput(
+    ["secret-tool", "store", "--label", "ccflip credentials", ...attrs],
+    payload
+  );
 
-  if (typeof stdin.write === "function") {
-    stdin.write(payload);
-    if (typeof stdin.end === "function") {
-      stdin.end();
-    }
-  } else if (typeof stdin.getWriter === "function") {
-    const writer = stdin.getWriter();
-    await writer.write(new TextEncoder().encode(payload));
-    await writer.close();
-  } else {
-    throw new Error("Unsupported stdin interface for secret-tool");
-  }
-
-  const [stderr, exitCode] = await Promise.all([
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-
-  if (exitCode !== 0) {
+  if (result.exitCode !== 0) {
     throw new Error(
       `Failed to store credentials in secret-tool: ${
-        stderr.trim() || `exit code ${exitCode}`
+        result.stderr || `exit code ${result.exitCode}`
       }`
     );
   }
@@ -199,7 +204,8 @@ export async function writeCredentials(credentials: string): Promise<void> {
       mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
       chmodSync(claudeDir, 0o700);
       const credPath = join(claudeDir, ".credentials.json");
-      await Bun.write(credPath, credentials, { mode: 0o600 } as any);
+      // Use fs write for runtime compatibility across Bun and Node.
+      writeFileSync(credPath, credentials, { mode: 0o600 });
       chmodSync(credPath, 0o600);
       break;
     }
