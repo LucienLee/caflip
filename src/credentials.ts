@@ -212,6 +212,39 @@ export async function writeCredentials(credentials: string): Promise<void> {
   }
 }
 
+// Clear active Claude Code credentials (logout state).
+export async function clearActiveCredentials(): Promise<void> {
+  const platform = detectPlatform();
+
+  switch (platform) {
+    case "macos": {
+      const result = await runCommand([
+        "security",
+        "delete-generic-password",
+        "-s",
+        "Claude Code-credentials",
+      ]);
+      if (result.exitCode !== 0 && !isSecurityItemMissing(result.stderr)) {
+        throw new Error(
+          `Failed to clear active credentials from keychain: ${
+            result.stderr || `exit code ${result.exitCode}`
+          }`
+        );
+      }
+      break;
+    }
+    case "linux":
+    case "wsl": {
+      if (hasSecretTool()) {
+        await secretToolClear(activeSecretToolAttrs());
+      }
+      const credPath = join(homedir(), ".claude", ".credentials.json");
+      rmSync(credPath, { force: true });
+      break;
+    }
+  }
+}
+
 // Read backed-up credentials for a specific account.
 export async function readAccountCredentials(
   accountNum: string,

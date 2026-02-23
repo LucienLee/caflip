@@ -19,8 +19,10 @@ import {
   removeAccountFromSequence,
   getNextInSequence,
   resolveAccountIdentifier,
+  resolveManagedAccountNumberForEmail,
   resolveAliasTargetAccount,
   getDisplayAccountLabel,
+  getPostRemovalAction,
   accountExists,
   setAlias,
   findAccountByAlias,
@@ -32,6 +34,7 @@ import {
   readAccountCredentials,
   writeAccountCredentials,
   deleteAccountCredentials,
+  clearActiveCredentials,
   readAccountConfig,
   writeAccountConfig,
   deleteAccountConfig,
@@ -45,6 +48,8 @@ import {
   confirmAction,
   PromptCancelledError,
 } from "./interactive";
+
+const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
 
 // Ensure backup directories exist.
 function setupDirectories(): void {
@@ -65,23 +70,58 @@ function getCurrentAccount(): string {
   }
 }
 
+async function clearActiveOAuthAccount(): Promise<void> {
+  const configPath = getClaudeConfigPath();
+  let configObj: Record<string, unknown> = {};
+
+  if (existsSync(configPath)) {
+    try {
+      configObj = JSON.parse(readFileSync(configPath, "utf-8"));
+    } catch {
+      configObj = {};
+    }
+  }
+
+  delete configObj.oauthAccount;
+  await writeJsonAtomic(configPath, configObj);
+}
+
+async function syncSequenceActiveAccount(seq: SequenceData): Promise<SequenceData> {
+  const currentEmail = getCurrentAccount();
+  const resolvedActive = resolveManagedAccountNumberForEmail(seq, currentEmail);
+  if (seq.activeAccountNumber !== resolvedActive) {
+    seq.activeAccountNumber = resolvedActive;
+    seq.lastUpdated = new Date().toISOString();
+    await writeJsonAtomic(SEQUENCE_FILE, seq);
+  }
+  return seq;
+}
+
 // Perform the actual account switch.
 export async function performSwitch(
   seq: SequenceData,
-  targetAccount: string
+  targetAccount: string,
+  options?: { currentEmail?: string }
 ): Promise<void> {
-  // Skip if already on the target account.
-  if (String(seq.activeAccountNumber) === targetAccount) {
+  const targetEmail = seq.accounts[targetAccount].email;
+  const currentEmail = options?.currentEmail ?? getCurrentAccount();
+  const currentAccount = currentEmail === "none"
+    ? null
+    : resolveAccountIdentifier(seq, currentEmail);
+
+  // Skip only when the real current logged-in account already matches target.
+  if (currentEmail === targetEmail) {
     const account = seq.accounts[targetAccount];
     const aliasStr = account.alias ? ` [${account.alias}]` : "";
     const displayLabel = getDisplayAccountLabel(seq, targetAccount);
+    if (seq.activeAccountNumber !== Number(targetAccount)) {
+      seq.activeAccountNumber = Number(targetAccount);
+      seq.lastUpdated = new Date().toISOString();
+      await writeJsonAtomic(SEQUENCE_FILE, seq);
+    }
     console.log(`Already using ${displayLabel} (${account.email})${aliasStr}`);
     return;
   }
-
-  const currentAccount = String(seq.activeAccountNumber);
-  const targetEmail = seq.accounts[targetAccount].email;
-  const currentEmail = getCurrentAccount();
 
   if (!sanitizeEmailForFilename(targetEmail)) {
     throw new Error("Target account email is not safe for storage");
@@ -91,7 +131,7 @@ export async function performSwitch(
   }
 
   // Step 1: Backup current account
-  if (currentEmail !== "none" && currentAccount !== "null") {
+  if (currentEmail !== "none" && currentAccount) {
     const currentCreds = await readCredentials();
     const configPath = getClaudeConfigPath();
     const currentConfig = existsSync(configPath)
@@ -155,6 +195,7 @@ async function cmdList(): Promise<void> {
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
+  await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
 
   console.log("Accounts:");
@@ -186,6 +227,7 @@ async function cmdAdd(alias?: string): Promise<void> {
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
+  await syncSequenceActiveAccount(seq);
 
   if (accountExists(seq, currentEmail)) {
     console.log(`Account ${currentEmail} is already managed.`);
@@ -239,6 +281,7 @@ async function cmdRemove(identifier?: string): Promise<void> {
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
+  await syncSequenceActiveAccount(seq);
 
   // If no identifier given, use interactive picker
   let accountNum: string;
@@ -274,12 +317,21 @@ async function cmdRemove(identifier?: string): Promise<void> {
     return;
   }
 
+  const updated = removeAccountFromSequence(seq, accountNum);
+  const action = getPostRemovalAction(seq, updated, accountNum);
+
+  if (action.type === "switch") {
+    await performSwitch(seq, action.targetAccountNumber);
+  } else if (action.type === "logout") {
+    await clearActiveCredentials();
+    await clearActiveOAuthAccount();
+  }
+
   // Delete backup files
   await deleteAccountCredentials(accountNum, account.email);
   deleteAccountConfig(accountNum, account.email, CONFIGS_DIR);
 
   // Update sequence
-  const updated = removeAccountFromSequence(seq, accountNum);
   await writeJsonAtomic(SEQUENCE_FILE, updated);
 
   console.log(
@@ -293,6 +345,7 @@ async function cmdNext(): Promise<void> {
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
+  await syncSequenceActiveAccount(seq);
 
   if (seq.sequence.length < 2) {
     throw new Error("Need at least 2 accounts to rotate");
@@ -362,13 +415,34 @@ async function cmdInteractiveSwitch(): Promise<void> {
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
+  await syncSequenceActiveAccount(seq);
+  const currentEmail = getCurrentAccount();
+  const shouldOfferAddCurrent =
+    currentEmail !== "none" && !accountExists(seq, currentEmail);
+  const extraChoices = shouldOfferAddCurrent
+    ? [
+        {
+          name: `+ Add current logged-in account (${currentEmail})`,
+          value: ADD_CURRENT_ACCOUNT_CHOICE,
+        },
+      ]
+    : [];
 
-  if (seq.sequence.length === 0) {
+  if (seq.sequence.length === 0 && !shouldOfferAddCurrent) {
     throw new Error("No accounts managed yet. Run: ccflip add");
   }
 
-  const targetAccount = await pickAccount(seq, `ccflip v${pkg.version} — Switch to account:`);
-  await performSwitch(seq, targetAccount);
+  const selected = await pickAccount(
+    seq,
+    `ccflip v${pkg.version} — Switch to account:`,
+    undefined,
+    extraChoices
+  );
+  if (selected === ADD_CURRENT_ACCOUNT_CHOICE) {
+    await cmdAdd();
+    return;
+  }
+  await performSwitch(seq, selected, { currentEmail });
 }
 
 function showHelp(): void {

@@ -17,6 +17,11 @@ export interface SequenceData {
   accounts: Record<string, Account>;
 }
 
+export type PostRemovalAction =
+  | { type: "none" }
+  | { type: "switch"; targetAccountNumber: string }
+  | { type: "logout" };
+
 export async function initSequenceFile(path: string): Promise<void> {
   if (existsSync(path)) return;
   const data: SequenceData = {
@@ -85,6 +90,40 @@ export function removeAccountFromSequence(
     activeAccountNumber: nextActive,
     lastUpdated: new Date().toISOString(),
   };
+}
+
+export function getPostRemovalAction(
+  original: SequenceData,
+  updated: SequenceData,
+  removedAccountNum: string
+): PostRemovalAction {
+  const removedNum = Number(removedAccountNum);
+  if (original.activeAccountNumber !== removedNum) {
+    return { type: "none" };
+  }
+
+  if (updated.activeAccountNumber === null) {
+    return { type: "logout" };
+  }
+
+  return {
+    type: "switch",
+    targetAccountNumber: String(updated.activeAccountNumber),
+  };
+}
+
+export function resolveManagedAccountNumberForEmail(
+  seq: SequenceData,
+  currentEmail: string
+): number | null {
+  if (!currentEmail || currentEmail === "none") {
+    return null;
+  }
+  const accountNum = resolveAccountIdentifier(seq, currentEmail);
+  if (!accountNum) {
+    return null;
+  }
+  return Number(accountNum);
 }
 
 export function getNextInSequence(seq: SequenceData): number {

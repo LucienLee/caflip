@@ -88,20 +88,24 @@ function formatAccount(
 export async function pickAccount(
   seq: SequenceData,
   message: string = "Switch to account:",
-  promptSelect: SelectPrompt = select
+  promptSelect: SelectPrompt = select,
+  extraChoices: Array<{ name: string; value: string }> = []
 ): Promise<string> {
-  const choices = seq.sequence.map((num, index) => {
-    const numStr = String(num);
-    const account = seq.accounts[numStr];
-    if (!account) {
-      throw new Error(`Corrupt sequence data: missing account entry for id ${numStr}`);
-    }
-    const isActive = num === seq.activeAccountNumber;
-    return {
-      name: formatAccount(String(index + 1), account.email, account.alias, isActive),
-      value: numStr,
-    };
-  });
+  const choices = [
+    ...seq.sequence.map((num, index) => {
+      const numStr = String(num);
+      const account = seq.accounts[numStr];
+      if (!account) {
+        throw new Error(`Corrupt sequence data: missing account entry for id ${numStr}`);
+      }
+      const isActive = num === seq.activeAccountNumber;
+      return {
+        name: formatAccount(String(index + 1), account.email, account.alias, isActive),
+        value: numStr,
+      };
+    }),
+    ...extraChoices,
+  ];
 
   const bold = (s: string) => `\u001b[1m${s}\u001b[22m`;
   const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;

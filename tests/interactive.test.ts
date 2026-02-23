@@ -118,4 +118,31 @@ describe("interactive display labels", () => {
       /Corrupt sequence data/i
     );
   });
+
+  test("pickAccount supports extra action choice for unmanaged current account", async () => {
+    const seq: SequenceData = {
+      activeAccountNumber: null,
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      sequence: [],
+      accounts: {},
+    };
+
+    const addCurrentChoice = {
+      name: "Add current logged-in account (new@test.com)",
+      value: "__add_current_account__",
+    };
+
+    const fakeSelect = async (args: {
+      message: string;
+      choices: Array<{ name: string; value: string }>;
+      theme?: unknown;
+    }) => {
+      expect(args.choices).toEqual([addCurrentChoice]);
+      return addCurrentChoice.value;
+    };
+
+    await expect(
+      pickAccount(seq, "Switch to account:", fakeSelect, [addCurrentChoice])
+    ).resolves.toBe("__add_current_account__");
+  });
 });

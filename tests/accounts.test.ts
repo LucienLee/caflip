@@ -14,6 +14,8 @@ import {
   getDisplayAccountLabel,
   setAlias,
   findAccountByAlias,
+  getPostRemovalAction,
+  resolveManagedAccountNumberForEmail,
 } from "../src/accounts";
 import { mkdirSync, rmSync, existsSync } from "fs";
 import { join } from "path";
@@ -310,5 +312,72 @@ describe("alias operations", () => {
     await initSequenceFile(TEST_SEQUENCE);
     const seq = await loadSequence(TEST_SEQUENCE);
     expect(findAccountByAlias(seq, "nope")).toBeNull();
+  });
+});
+
+describe("getPostRemovalAction", () => {
+  test("returns switch when removing active account with remaining accounts", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    seq.activeAccountNumber = 1;
+    const updated = removeAccountFromSequence(seq, "1");
+
+    expect(getPostRemovalAction(seq, updated, "1")).toEqual({
+      type: "switch",
+      targetAccountNumber: "2",
+    });
+  });
+
+  test("returns logout when removing last active account", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq.activeAccountNumber = 1;
+    const updated = removeAccountFromSequence(seq, "1");
+
+    expect(getPostRemovalAction(seq, updated, "1")).toEqual({
+      type: "logout",
+    });
+  });
+
+  test("returns none when removing a non-active account", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    seq.activeAccountNumber = 2;
+    const updated = removeAccountFromSequence(seq, "1");
+
+    expect(getPostRemovalAction(seq, updated, "1")).toEqual({
+      type: "none",
+    });
+  });
+});
+
+describe("resolveManagedAccountNumberForEmail", () => {
+  test("returns managed account number when email exists in sequence", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+
+    expect(resolveManagedAccountNumberForEmail(seq, "c@d.com")).toBe(2);
+  });
+
+  test("returns null when email is unmanaged", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+
+    expect(resolveManagedAccountNumberForEmail(seq, "x@y.com")).toBeNull();
+  });
+
+  test('returns null when current account is "none"', async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    const seq = await loadSequence(TEST_SEQUENCE);
+
+    expect(resolveManagedAccountNumberForEmail(seq, "none")).toBeNull();
   });
 });
