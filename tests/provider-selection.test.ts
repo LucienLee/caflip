@@ -1,5 +1,5 @@
 // ABOUTME: Tests provider token parsing for CLI command routing.
-// ABOUTME: Ensures positional provider syntax is parsed and legacy defaults remain.
+// ABOUTME: Ensures positional provider syntax is parsed and non-provider args remain unqualified.
 
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
@@ -8,10 +8,19 @@ import { join } from "path";
 import { parseProviderArgs } from "../src/providers/types";
 
 describe("provider selection", () => {
-  test("defaults to claude when provider is omitted", () => {
+  test("returns null provider for top-level interactive no-args", () => {
+    expect(parseProviderArgs([])).toEqual({
+      provider: null,
+      commandArgs: [],
+      isProviderQualified: false,
+    });
+  });
+
+  test("marks command as unqualified when provider is omitted", () => {
     expect(parseProviderArgs(["list"])).toEqual({
-      provider: "claude",
+      provider: null,
       commandArgs: ["list"],
+      isProviderQualified: false,
     });
   });
 
@@ -19,6 +28,7 @@ describe("provider selection", () => {
     expect(parseProviderArgs(["codex", "list"])).toEqual({
       provider: "codex",
       commandArgs: ["list"],
+      isProviderQualified: true,
     });
   });
 
@@ -26,6 +36,7 @@ describe("provider selection", () => {
     expect(parseProviderArgs(["claude", "status"])).toEqual({
       provider: "claude",
       commandArgs: ["status"],
+      isProviderQualified: true,
     });
   });
 

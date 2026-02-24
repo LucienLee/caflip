@@ -585,7 +585,7 @@ Examples:
 
 async function main(): Promise<void> {
   const parsed = parseProviderArgs(process.argv.slice(2));
-  const provider = parsed.provider;
+  const provider = parsed.provider ?? "claude";
   const args = parsed.commandArgs;
 
   setActiveProvider(provider);

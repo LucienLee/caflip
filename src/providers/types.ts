@@ -10,16 +10,17 @@ export function isProviderName(value: string): value is ProviderName {
 }
 
 export function parseProviderArgs(args: string[]): {
-  provider: ProviderName;
+  provider: ProviderName | null;
   commandArgs: string[];
+  isProviderQualified: boolean;
 } {
   if (args[0] === "--provider") {
     throw new Error("Use positional provider syntax: caflip <claude|codex> <command>");
   }
 
   if (args[0] && isProviderName(args[0])) {
-    return { provider: args[0], commandArgs: args.slice(1) };
+    return { provider: args[0], commandArgs: args.slice(1), isProviderQualified: true };
   }
 
-  return { provider: "claude", commandArgs: args };
+  return { provider: null, commandArgs: args, isProviderQualified: false };
 }

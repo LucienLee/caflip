@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   pickAccount,
+  pickProvider,
   confirmAction,
   PromptCancelledError,
 } from "../src/interactive";
@@ -73,6 +74,21 @@ describe("interactive cancellation", () => {
 });
 
 describe("interactive display labels", () => {
+  test("pickProvider supports default provider hint", async () => {
+    const fakeSelect = async (args: {
+      message: string;
+      choices: Array<{ name: string; value: string }>;
+      theme?: unknown;
+    }) => {
+      expect(args.message).toBe("Select provider");
+      expect(args.choices.map((c) => c.value)).toEqual(["claude", "codex"]);
+      expect(args.choices[1]?.name).toContain("(last used)");
+      return "codex";
+    };
+
+    await expect(pickProvider("codex", fakeSelect)).resolves.toBe("codex");
+  });
+
   test("pickAccount shows UI sequence numbers, not internal ids", async () => {
     const seq: SequenceData = {
       activeAccountNumber: 3,

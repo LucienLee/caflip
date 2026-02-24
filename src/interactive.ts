@@ -4,6 +4,7 @@
 import readline from "node:readline";
 import { select, confirm } from "@inquirer/prompts";
 import type { SequenceData } from "./accounts";
+import type { ProviderName } from "./providers/types";
 
 type SelectPrompt = (args: {
   message: string;
@@ -138,6 +139,24 @@ export async function pickChoice(
   };
 
   return wrapPromptCancellation(() => promptSelect({ message, choices, theme }));
+}
+
+export async function pickProvider(
+  defaultProvider: ProviderName,
+  promptSelect: SelectPrompt = select
+): Promise<ProviderName> {
+  const choices = [
+    {
+      name: defaultProvider === "claude" ? "Claude Code (last used)" : "Claude Code",
+      value: "claude",
+    },
+    {
+      name: defaultProvider === "codex" ? "Codex (last used)" : "Codex",
+      value: "codex",
+    },
+  ];
+  const selected = await pickChoice("Select provider", choices, promptSelect);
+  return selected as ProviderName;
 }
 
 // Show interactive account picker for removal.
