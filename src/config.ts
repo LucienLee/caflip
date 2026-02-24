@@ -4,14 +4,35 @@
 import { homedir } from "os";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import type { ProviderName } from "./providers/types";
 
 export type Platform = "macos" | "linux" | "wsl" | "windows" | "unknown";
 
-export const BACKUP_DIR = join(homedir(), ".claude-switch-backup");
-export const SEQUENCE_FILE = join(BACKUP_DIR, "sequence.json");
-export const LOCK_DIR = join(BACKUP_DIR, ".lock");
-export const CONFIGS_DIR = join(BACKUP_DIR, "configs");
-export const CREDENTIALS_DIR = join(BACKUP_DIR, "credentials");
+export function getBackupDir(provider: ProviderName): string {
+  return join(homedir(), ".caflip-backup", provider);
+}
+
+export function getSequenceFile(provider: ProviderName): string {
+  return join(getBackupDir(provider), "sequence.json");
+}
+
+export function getLockDir(provider: ProviderName): string {
+  return join(getBackupDir(provider), ".lock");
+}
+
+export function getConfigsDir(provider: ProviderName): string {
+  return join(getBackupDir(provider), "configs");
+}
+
+export function getCredentialsDir(provider: ProviderName): string {
+  return join(getBackupDir(provider), "credentials");
+}
+
+export const BACKUP_DIR = getBackupDir("claude");
+export const SEQUENCE_FILE = getSequenceFile("claude");
+export const LOCK_DIR = getLockDir("claude");
+export const CONFIGS_DIR = getConfigsDir("claude");
+export const CREDENTIALS_DIR = getCredentialsDir("claude");
 
 export const RESERVED_COMMANDS = [
   "list",
@@ -20,6 +41,8 @@ export const RESERVED_COMMANDS = [
   "next",
   "status",
   "alias",
+  "claude",
+  "codex",
   "help",
 ] as const;
 

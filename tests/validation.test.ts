@@ -56,6 +56,9 @@ describe("validateAlias", () => {
     const result = validateAlias("list");
     expect(result.valid).toBe(false);
     expect(result.reason).toContain("reserved");
+
+    expect(validateAlias("claude").valid).toBe(false);
+    expect(validateAlias("codex").valid).toBe(false);
   });
 
   test("rejects purely numeric aliases", () => {

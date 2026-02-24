@@ -248,7 +248,8 @@ export async function clearActiveCredentials(): Promise<void> {
 // Read backed-up credentials for a specific account.
 export async function readAccountCredentials(
   accountNum: string,
-  email: string
+  email: string,
+  credentialsDir: string = CREDENTIALS_DIR
 ): Promise<string> {
   ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
@@ -290,7 +291,7 @@ export async function readAccountCredentials(
       }
 
       const credFile = join(
-        CREDENTIALS_DIR,
+        credentialsDir,
         `.claude-credentials-${accountNum}-${email}.json`
       );
       if (existsSync(credFile)) {
@@ -307,7 +308,8 @@ export async function readAccountCredentials(
 export async function writeAccountCredentials(
   accountNum: string,
   email: string,
-  credentials: string
+  credentials: string,
+  credentialsDir: string = CREDENTIALS_DIR
 ): Promise<void> {
   ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
@@ -348,11 +350,11 @@ export async function writeAccountCredentials(
       }
 
       const credFile = join(
-        CREDENTIALS_DIR,
+        credentialsDir,
         `.claude-credentials-${accountNum}-${email}.json`
       );
-      mkdirSync(CREDENTIALS_DIR, { recursive: true, mode: 0o700 });
-      chmodSync(CREDENTIALS_DIR, 0o700);
+      mkdirSync(credentialsDir, { recursive: true, mode: 0o700 });
+      chmodSync(credentialsDir, 0o700);
       // Credentials are JSON, use atomic write
       const parsed = JSON.parse(credentials);
       await writeJsonAtomic(credFile, parsed);
@@ -364,7 +366,8 @@ export async function writeAccountCredentials(
 // Delete backed-up credentials for a specific account.
 export async function deleteAccountCredentials(
   accountNum: string,
-  email: string
+  email: string,
+  credentialsDir: string = CREDENTIALS_DIR
 ): Promise<void> {
   ensureAccountNumberSafe(accountNum);
   if (!sanitizeEmailForFilename(email)) {
@@ -398,7 +401,7 @@ export async function deleteAccountCredentials(
         await secretToolClear(backupSecretToolAttrs(accountNum, email));
       }
       const credFile = join(
-        CREDENTIALS_DIR,
+        credentialsDir,
         `.claude-credentials-${accountNum}-${email}.json`
       );
       rmSync(credFile, { force: true });

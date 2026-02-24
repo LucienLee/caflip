@@ -8,7 +8,7 @@ caflip is built for one job: if you have multiple Claude or Codex accounts, swit
 
 Today, caflip focuses on Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same while switching accounts.
 
-Say you have a personal Claude Max account and a work account with API access. caflip lets you flip between them while keeping your carefully set up Claude Code config intact.
+Use case: you have personal/work Claude or Codex accounts and want to switch quickly without re-login flows every time.
 
 
 ## Platform Support
@@ -49,47 +49,58 @@ bun run dev -- help
 ## Quick Start
 
 ```bash
-# Add your first account (must be logged into Claude Code)
-caflip add --alias personal
+# Add your first Claude account (must already be logged in)
+caflip claude add --alias personal
 
-# Log out, log into second account, add it too
-caflip add --alias work
+# Add another Claude account
+caflip claude add --alias work
 
-# Switch accounts interactively
+# Pick provider interactively, then pick account
 caflip
 
-# Switch by alias
-caflip work
-caflip personal
+# Switch Claude by alias
+caflip claude work
+caflip claude personal
 
-# Rotate to next account
-caflip next
+# Rotate Claude accounts
+caflip claude next
+
+# Use Codex provider explicitly
+caflip codex add --alias codex-work
+caflip codex list
+caflip codex next
 ```
 
-After switching, restart Claude Code to pick up the new authentication.
+After switching, restart the target CLI (Claude Code or Codex) to pick up new authentication.
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `caflip` | Interactive account picker |
-| `caflip <alias>` | Switch by alias |
-| `caflip list` | List managed accounts |
-| `caflip add [--alias name]` | Add current account |
-| `caflip remove [email]` | Remove an account |
-| `caflip next` | Rotate to next account |
-| `caflip status` | Show current account |
-| `caflip alias <name> [email]` | Set alias for current account, or for target account email |
+| `caflip` | Interactive provider picker (Claude/Codex) |
+| `caflip claude [command]` | Run command for Claude provider |
+| `caflip codex [command]` | Run command for Codex provider |
+| `caflip [provider]` | Interactive account picker for that provider |
+| `caflip [provider] <alias>` | Switch by alias for that provider |
+| `caflip [provider] list` | List managed accounts |
+| `caflip [provider] add [--alias name]` | Add current account |
+| `caflip [provider] remove [email]` | Remove an account |
+| `caflip [provider] next` | Rotate to next account |
+| `caflip [provider] status` | Show current account |
+| `caflip [provider] alias <name> [email]` | Set alias for current or target account |
 | `caflip help` | Show help |
 
 ### Alias Usage
 
 ```bash
 # Set alias for current active account
-caflip alias work
+caflip claude alias work
 
 # Set alias for a specific managed account
-caflip alias work hi.lucienlee@gmail.com
+caflip claude alias work hi.lucienlee@gmail.com
+
+# Codex alias
+caflip codex alias work me@company.com
 ```
 
 `remove` target accepts email only. Omit it to choose from the interactive picker.
@@ -100,10 +111,13 @@ Show the current account in your prompt:
 
 ```bash
 # .zshrc
-PROMPT='$(caflip status) > '
+PROMPT='$(caflip claude status) > '
+PROMPT='$(caflip codex status) > '
 ```
 
-Account data lives in `~/.claude-switch-backup/`.
+Account data lives in:
+- `~/.caflip-backup/claude/`
+- `~/.caflip-backup/codex/`
 
 ## Credits
 

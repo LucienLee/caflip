@@ -4,6 +4,7 @@
 import readline from "node:readline";
 import { select, confirm } from "@inquirer/prompts";
 import type { SequenceData } from "./accounts";
+import type { ProviderName } from "./providers/types";
 
 type SelectPrompt = (args: {
   message: string;
@@ -119,6 +120,43 @@ export async function pickAccount(
   };
 
   return wrapPromptCancellation(() => promptSelect({ message, choices, theme }));
+}
+
+export async function pickChoice(
+  message: string,
+  choices: Array<{ name: string; value: string }>,
+  promptSelect: SelectPrompt = select
+): Promise<string> {
+  const bold = (s: string) => `\u001b[1m${s}\u001b[22m`;
+  const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
+  const theme = {
+    style: {
+      keysHelpTip: (keys: Array<[string, string]>) =>
+        [...keys, ["\u238B", "cancel"]]
+          .map(([k, a]) => `${bold(k)} ${dim(a)}`)
+          .join(dim(" \u2022 ")),
+    },
+  };
+
+  return wrapPromptCancellation(() => promptSelect({ message, choices, theme }));
+}
+
+export async function pickProvider(
+  defaultProvider: ProviderName,
+  promptSelect: SelectPrompt = select
+): Promise<ProviderName> {
+  const choices = [
+    {
+      name: defaultProvider === "claude" ? "Claude Code (last used)" : "Claude Code",
+      value: "claude",
+    },
+    {
+      name: defaultProvider === "codex" ? "Codex (last used)" : "Codex",
+      value: "codex",
+    },
+  ];
+  const selected = await pickChoice("Select provider", choices, promptSelect);
+  return selected as ProviderName;
 }
 
 // Show interactive account picker for removal.

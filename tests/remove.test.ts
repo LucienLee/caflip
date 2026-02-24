@@ -9,7 +9,7 @@ import { join } from "path";
 describe("remove command", () => {
   test("rejects numeric identifier and requires email", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "ccflip-remove-test-"));
-    const backupDir = join(testHome, ".claude-switch-backup");
+    const backupDir = join(testHome, ".caflip-backup/claude");
     mkdirSync(backupDir, { recursive: true, mode: 0o700 });
 
     const sequenceFile = join(backupDir, "sequence.json");
@@ -33,7 +33,7 @@ describe("remove command", () => {
       )
     );
 
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "remove", "1"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "remove", "1"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",

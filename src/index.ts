@@ -9,6 +9,11 @@ import {
   LOCK_DIR,
   CONFIGS_DIR,
   CREDENTIALS_DIR,
+  getBackupDir,
+  getSequenceFile,
+  getLockDir,
+  getConfigsDir,
+  getCredentialsDir,
   RESERVED_COMMANDS,
   getClaudeConfigPath,
 } from "./config";
@@ -28,46 +33,52 @@ import {
   findAccountByAlias,
   type SequenceData,
 } from "./accounts";
-import {
-  readCredentials,
-  writeCredentials,
-  readAccountCredentials,
-  writeAccountCredentials,
-  deleteAccountCredentials,
-  clearActiveCredentials,
-  readAccountConfig,
-  writeAccountConfig,
-  deleteAccountConfig,
-} from "./credentials";
 import { writeJsonAtomic, acquireLock, releaseLock } from "./files";
 import { sanitizeEmailForFilename, validateAlias } from "./validation";
 import pkg from "../package.json";
 import {
   pickAccount,
+  pickChoice,
+  pickProvider,
   pickAccountForRemoval,
   confirmAction,
   PromptCancelledError,
 } from "./interactive";
+import { parseProviderArgs, type ProviderName } from "./providers/types";
+import { getProvider, type AccountProvider } from "./providers";
+import { readCliMeta, writeLastProvider } from "./meta";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
+let activeBackupDir = BACKUP_DIR;
+let activeSequenceFile = SEQUENCE_FILE;
+let activeLockDir = LOCK_DIR;
+let activeConfigsDir = CONFIGS_DIR;
+let activeCredentialsDir = CREDENTIALS_DIR;
+let activeProvider: AccountProvider = getProvider("claude");
+
+function setActiveProvider(provider: ProviderName): void {
+  activeBackupDir = getBackupDir(provider);
+  activeSequenceFile = getSequenceFile(provider);
+  activeLockDir = getLockDir(provider);
+  activeConfigsDir = getConfigsDir(provider);
+  activeCredentialsDir = getCredentialsDir(provider);
+  activeProvider = getProvider(provider);
+}
 
 // Ensure backup directories exist.
 function setupDirectories(): void {
-  for (const dir of [BACKUP_DIR, CONFIGS_DIR, CREDENTIALS_DIR]) {
+  for (const dir of [activeBackupDir, activeConfigsDir, activeCredentialsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 }
 
 // Read current account email from Claude config.
 function getCurrentAccount(): string {
-  const configPath = getClaudeConfigPath();
-  if (!existsSync(configPath)) return "none";
-  try {
-    const content = JSON.parse(readFileSync(configPath, "utf-8"));
-    return content?.oauthAccount?.emailAddress ?? "none";
-  } catch {
-    return "none";
-  }
+  return activeProvider.getCurrentAccountEmail();
+}
+
+function getProviderLabel(): string {
+  return activeProvider.name === "codex" ? "Codex" : "Claude Code";
 }
 
 async function clearActiveOAuthAccount(): Promise<void> {
@@ -92,7 +103,7 @@ async function syncSequenceActiveAccount(seq: SequenceData): Promise<SequenceDat
   if (seq.activeAccountNumber !== resolvedActive) {
     seq.activeAccountNumber = resolvedActive;
     seq.lastUpdated = new Date().toISOString();
-    await writeJsonAtomic(SEQUENCE_FILE, seq);
+    await writeJsonAtomic(activeSequenceFile, seq);
   }
   return seq;
 }
@@ -117,7 +128,7 @@ export async function performSwitch(
     if (seq.activeAccountNumber !== Number(targetAccount)) {
       seq.activeAccountNumber = Number(targetAccount);
       seq.lastUpdated = new Date().toISOString();
-      await writeJsonAtomic(SEQUENCE_FILE, seq);
+      await writeJsonAtomic(activeSequenceFile, seq);
     }
     console.log(`Already using ${displayLabel} (${account.email})${aliasStr}`);
     return;
@@ -132,69 +143,97 @@ export async function performSwitch(
 
   // Step 1: Backup current account
   if (currentEmail !== "none" && currentAccount) {
-    const currentCreds = await readCredentials();
-    const configPath = getClaudeConfigPath();
-    const currentConfig = existsSync(configPath)
-      ? readFileSync(configPath, "utf-8")
-      : "";
+    const currentCreds = await activeProvider.readActiveAuth();
 
     if (currentCreds) {
-      await writeAccountCredentials(currentAccount, currentEmail, currentCreds);
+      await activeProvider.writeAccountAuth(
+        currentAccount,
+        currentEmail,
+        currentCreds,
+        activeCredentialsDir
+      );
     }
-    if (currentConfig) {
-      await writeAccountConfig(currentAccount, currentEmail, currentConfig, CONFIGS_DIR);
+    if (activeProvider.name === "claude") {
+      const configPath = getClaudeConfigPath();
+      const currentConfig = existsSync(configPath)
+        ? readFileSync(configPath, "utf-8")
+        : "";
+      if (currentConfig) {
+      await activeProvider.writeAccountConfig(
+        currentAccount,
+        currentEmail,
+        currentConfig,
+        activeConfigsDir
+      );
+      }
     }
   }
 
   // Step 2: Restore target account
-  const targetCreds = await readAccountCredentials(targetAccount, targetEmail);
-  const targetConfig = readAccountConfig(targetAccount, targetEmail, CONFIGS_DIR);
+  const targetCreds = await activeProvider.readAccountAuth(
+    targetAccount,
+    targetEmail,
+    activeCredentialsDir
+  );
+  const targetConfig = activeProvider.readAccountConfig(
+    targetAccount,
+    targetEmail,
+    activeConfigsDir
+  );
 
-  if (!targetCreds || !targetConfig) {
+  if (!targetCreds) {
+    throw new Error(
+      `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
+    );
+  }
+  if (activeProvider.name === "claude" && !targetConfig) {
     throw new Error(
       `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
     );
   }
 
   // Step 3: Write target credentials
-  await writeCredentials(targetCreds);
+  await activeProvider.writeActiveAuth(targetCreds);
 
-  // Step 4: Merge oauthAccount into current config
-  const targetConfigObj = JSON.parse(targetConfig);
-  const oauthAccount = targetConfigObj.oauthAccount;
-  if (!oauthAccount) {
-    throw new Error("Invalid oauthAccount in backup");
-  }
+  // Step 4: Provider-specific config restore
+  if (activeProvider.name === "claude") {
+    const targetConfigObj = JSON.parse(targetConfig);
+    const oauthAccount = targetConfigObj.oauthAccount;
+    if (!oauthAccount) {
+      throw new Error("Invalid oauthAccount in backup");
+    }
 
-  const configPath = getClaudeConfigPath();
-  let currentConfigObj: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    currentConfigObj = JSON.parse(readFileSync(configPath, "utf-8"));
+    const configPath = getClaudeConfigPath();
+    let currentConfigObj: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      currentConfigObj = JSON.parse(readFileSync(configPath, "utf-8"));
+    }
+    currentConfigObj.oauthAccount = oauthAccount;
+    await writeJsonAtomic(configPath, currentConfigObj);
   }
-  currentConfigObj.oauthAccount = oauthAccount;
-  await writeJsonAtomic(configPath, currentConfigObj);
 
   // Step 5: Update sequence
   seq.activeAccountNumber = Number(targetAccount);
   seq.lastUpdated = new Date().toISOString();
-  await writeJsonAtomic(SEQUENCE_FILE, seq);
+  await writeJsonAtomic(activeSequenceFile, seq);
 
   const alias = seq.accounts[targetAccount].alias;
   const aliasStr = alias ? ` [${alias}]` : "";
   const displayLabel = getDisplayAccountLabel(seq, targetAccount);
   console.log(`Switched to ${displayLabel} (${targetEmail})${aliasStr}`);
-  console.log("\nPlease restart Claude Code to use the new authentication.\n");
+  console.log(`\nPlease restart ${getProviderLabel()} to use the new authentication.\n`);
 }
 
 // --- Command handlers ---
 
 async function cmdList(): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
-    console.log("No accounts managed yet. Run: caflip add");
+  if (!existsSync(activeSequenceFile)) {
+    const providerCmd = activeProvider.name === "codex" ? "caflip codex add" : "caflip claude add";
+    console.log(`No accounts managed yet. Run: ${providerCmd}`);
     return;
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
 
@@ -215,18 +254,19 @@ async function cmdList(): Promise<void> {
 
 async function cmdAdd(alias?: string): Promise<void> {
   setupDirectories();
-  await initSequenceFile(SEQUENCE_FILE);
+  await initSequenceFile(activeSequenceFile);
 
-  const currentEmail = getCurrentAccount();
+  const currentAccount = activeProvider.getCurrentAccount();
+  const currentEmail = currentAccount?.email ?? "none";
   if (currentEmail === "none") {
-    throw new Error("No active Claude account found. Please log in first.");
+    throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
   }
 
   if (!sanitizeEmailForFilename(currentEmail)) {
     throw new Error("Current account email is not safe for storage");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
 
   if (accountExists(seq, currentEmail)) {
@@ -246,15 +286,19 @@ async function cmdAdd(alias?: string): Promise<void> {
   }
 
   // Read current credentials and config
-  const creds = await readCredentials();
+  const creds = await activeProvider.readActiveAuth();
   if (!creds) {
     throw new Error("No credentials found for current account");
   }
 
-  const configPath = getClaudeConfigPath();
-  const config = readFileSync(configPath, "utf-8");
-  const configObj = JSON.parse(config);
-  const uuid = configObj.oauthAccount?.accountUuid ?? "";
+  let config = "";
+  let uuid = currentAccount?.accountId ?? "";
+  if (activeProvider.name === "claude") {
+    const configPath = getClaudeConfigPath();
+    config = readFileSync(configPath, "utf-8");
+    const configObj = JSON.parse(config);
+    uuid = configObj.oauthAccount?.accountUuid ?? "";
+  }
 
   // Add to sequence
   const updated = addAccountToSequence(seq, {
@@ -267,20 +311,27 @@ async function cmdAdd(alias?: string): Promise<void> {
   const displayLabel = getDisplayAccountLabel(updated, accountNum);
 
   // Store backups
-  await writeAccountCredentials(accountNum, currentEmail, creds);
-  await writeAccountConfig(accountNum, currentEmail, config, CONFIGS_DIR);
-  await writeJsonAtomic(SEQUENCE_FILE, updated);
+  await activeProvider.writeAccountAuth(
+    accountNum,
+    currentEmail,
+    creds,
+    activeCredentialsDir
+  );
+  if (config) {
+    await activeProvider.writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
+  }
+  await writeJsonAtomic(activeSequenceFile, updated);
 
   const aliasStr = alias ? ` [${alias}]` : "";
   console.log(`Added ${displayLabel}: ${currentEmail}${aliasStr}`);
 }
 
 async function cmdRemove(identifier?: string): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
 
   // If no identifier given, use interactive picker
@@ -323,16 +374,18 @@ async function cmdRemove(identifier?: string): Promise<void> {
   if (action.type === "switch") {
     await performSwitch(seq, action.targetAccountNumber);
   } else if (action.type === "logout") {
-    await clearActiveCredentials();
-    await clearActiveOAuthAccount();
+    await activeProvider.clearActiveAuth();
+    if (activeProvider.name === "claude") {
+      await clearActiveOAuthAccount();
+    }
   }
 
   // Delete backup files
-  await deleteAccountCredentials(accountNum, account.email);
-  deleteAccountConfig(accountNum, account.email, CONFIGS_DIR);
+  await activeProvider.deleteAccountAuth(accountNum, account.email, activeCredentialsDir);
+  activeProvider.deleteAccountConfig(accountNum, account.email, activeConfigsDir);
 
   // Update sequence
-  await writeJsonAtomic(SEQUENCE_FILE, updated);
+  await writeJsonAtomic(activeSequenceFile, updated);
 
   console.log(
     `${getDisplayAccountLabel(seq, accountNum)} (${account.email}) has been removed`
@@ -340,11 +393,11 @@ async function cmdRemove(identifier?: string): Promise<void> {
 }
 
 async function cmdNext(): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
 
   if (seq.sequence.length < 2) {
@@ -355,27 +408,47 @@ async function cmdNext(): Promise<void> {
   await performSwitch(seq, String(nextNum));
 }
 
-async function cmdStatus(): Promise<void> {
+async function cmdStatus(options?: { json?: boolean }): Promise<void> {
+  const jsonMode = options?.json ?? false;
   const email = getCurrentAccount();
+  let alias: string | null = null;
+  let managed = false;
+  if (email !== "none" && existsSync(activeSequenceFile)) {
+    const seq = await loadSequence(activeSequenceFile);
+    for (const account of Object.values(seq.accounts)) {
+      if (account.email === email) {
+        managed = true;
+        alias = account.alias ?? null;
+        break;
+      }
+    }
+  }
+
+  if (jsonMode) {
+    console.log(
+      JSON.stringify({
+        provider: activeProvider.name,
+        email: email === "none" ? null : email,
+        alias,
+        managed,
+      })
+    );
+    return;
+  }
+
   if (email === "none") {
     console.log("none");
   } else {
-    // Check if account has alias
-    if (existsSync(SEQUENCE_FILE)) {
-      const seq = await loadSequence(SEQUENCE_FILE);
-      for (const account of Object.values(seq.accounts)) {
-        if (account.email === email && account.alias) {
-          console.log(`${email} [${account.alias}]`);
-          return;
-        }
-      }
+    if (alias) {
+      console.log(`${email} [${alias}]`);
+      return;
     }
     console.log(email);
   }
 }
 
 async function cmdAlias(alias: string, identifier?: string): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet");
   }
 
@@ -384,7 +457,7 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
     throw new Error(result.reason);
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   if (identifier && /^\d+$/.test(identifier)) {
     throw new Error("Alias target must be an email, not a number");
   }
@@ -394,14 +467,14 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
     if (identifier) {
       throw new Error(`Account not found: ${identifier}`);
     } else if (currentEmail === "none") {
-      throw new Error("No active Claude account found. Please log in first.");
+      throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
     } else {
       throw new Error(`Current account is not managed: ${currentEmail}`);
     }
   }
 
   const updated = setAlias(seq, accountNum, alias);
-  await writeJsonAtomic(SEQUENCE_FILE, updated);
+  await writeJsonAtomic(activeSequenceFile, updated);
 
   const account = updated.accounts[accountNum];
   console.log(
@@ -410,31 +483,40 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
 }
 
 async function cmdInteractiveSwitch(): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
-    throw new Error("No accounts managed yet. Run: caflip add");
-  }
-
-  const seq = await loadSequence(SEQUENCE_FILE);
-  await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
-  const shouldOfferAddCurrent =
-    currentEmail !== "none" && !accountExists(seq, currentEmail);
-  const extraChoices = shouldOfferAddCurrent
-    ? [
-        {
-          name: `+ Add current logged-in account (${currentEmail})`,
-          value: ADD_CURRENT_ACCOUNT_CHOICE,
-        },
-      ]
-    : [];
-
-  if (seq.sequence.length === 0 && !shouldOfferAddCurrent) {
-    throw new Error("No accounts managed yet. Run: caflip add");
+  const hasSequence = existsSync(activeSequenceFile);
+  const seq = hasSequence ? await loadSequence(activeSequenceFile) : null;
+  if (seq) {
+    await syncSequenceActiveAccount(seq);
   }
+
+  if (!seq || seq.sequence.length === 0) {
+    const emptyStateChoices = [
+      {
+        name: `+ Add current logged-in account${currentEmail === "none" ? "" : ` (${currentEmail})`}`,
+        value: ADD_CURRENT_ACCOUNT_CHOICE,
+      },
+      { name: "Back", value: "__back__" },
+    ];
+    const selected = await pickChoice(
+      `No managed ${getProviderLabel()} accounts yet`,
+      emptyStateChoices
+    );
+    if (selected === "__back__") {
+      return;
+    }
+    await cmdAdd();
+    return;
+  }
+
+  const shouldOfferAddCurrent = currentEmail !== "none" && !accountExists(seq, currentEmail);
+  const extraChoices = shouldOfferAddCurrent
+    ? [{ name: `+ Add current logged-in account (${currentEmail})`, value: ADD_CURRENT_ACCOUNT_CHOICE }]
+    : [];
 
   const selected = await pickAccount(
     seq,
-    `caflip v${pkg.version} — Switch to account:`,
+    `caflip v${pkg.version} — Switch ${getProviderLabel()} account:`,
     undefined,
     extraChoices
   );
@@ -446,57 +528,107 @@ async function cmdInteractiveSwitch(): Promise<void> {
 }
 
 function showHelp(): void {
-  console.log(`caflip (formerly ccflip) - Switch between multiple Claude or Codex accounts quickly
+  console.log(`caflip - Coding Agent Account Switch (Claude Code + Codex)
 
-Usage: caflip [command]
+Usage:
+  caflip
+  caflip <claude|codex> [command]
 
 Commands:
-  (no args)                   Interactive account picker
-  <alias>                     Switch to account by alias
-  list                        List all managed accounts
-  add [--alias <name>]        Add current account
-  remove [<email>]            Remove an account
-  next                        Rotate to next account
-  status                      Show current account
-  alias <name> [<email>]      Set alias for current or target account
-  help                        Show this help
+  (no args)                            Interactive provider picker
+  <provider>                           Interactive account picker for provider
+  <provider> <alias>                   Switch by alias for provider
+  <provider> list                      List all managed accounts
+  <provider> add [--alias <name>]      Add current account
+  <provider> remove [<email>]          Remove an account
+  <provider> next                      Rotate to next account
+  <provider> status [--json]           Show current account
+  <provider> alias <name> [<email>]    Set alias for current or target account
+  help                                 Show this help
 
 Examples:
-  caflip                      Pick account interactively
-  caflip work                 Switch to "work" alias
-  caflip add --alias personal Add current account with alias
-  caflip alias work           Set alias "work" for current account
-  caflip alias work user@company.com  Set alias "work" for target email`);
+  caflip                               Pick provider interactively
+  caflip claude                        Pick Claude account interactively
+  caflip claude work                   Switch Claude account by alias
+  caflip claude add --alias personal   Add current Claude account with alias
+  caflip claude status --json          Show Claude status as JSON
+  caflip codex list                    List managed Codex accounts
+  caflip codex add --alias work        Add current Codex account with alias
+  caflip codex alias work user@company.com
+                                       Set Codex alias for target email`);
 }
 
 // --- Main ---
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const parsed = parseProviderArgs(process.argv.slice(2));
+  const provider = parsed.provider;
+  const args = parsed.commandArgs;
   const command = args[0];
   let lockHeld = false;
 
-  const runWithLock = async (fn: () => Promise<void>): Promise<void> => {
+  const runWithLock = async <T>(fn: () => Promise<T>): Promise<T> => {
     setupDirectories();
-    acquireLock(LOCK_DIR);
+    acquireLock(activeLockDir);
     lockHeld = true;
     try {
-      await fn();
+      return await fn();
     } finally {
       if (lockHeld) {
-        releaseLock(LOCK_DIR);
+        releaseLock(activeLockDir);
         lockHeld = false;
       }
     }
   };
+  const runWithProviderLock = async <T>(
+    targetProvider: ProviderName,
+    fn: () => Promise<T>
+  ): Promise<T> => {
+    setActiveProvider(targetProvider);
+    return await runWithLock(fn);
+  };
 
-  // No args: interactive picker
+  const isHelpCommand = command === "help" || command === "--help" || command === "-h";
+  if (!parsed.isProviderQualified && command && !isHelpCommand) {
+    if ((RESERVED_COMMANDS as readonly string[]).includes(command)) {
+      console.error("Error: Provider is required for non-interactive commands.");
+      console.error("Try: caflip claude list");
+      process.exit(2);
+    } else {
+      console.error("Error: Alias requires provider prefix.");
+      console.error("Try: caflip claude <alias> or caflip codex <alias>");
+      process.exit(2);
+    }
+  }
+
+  // No args: interactive provider picker
   if (!command) {
-    await runWithLock(async () => {
+    if (!provider) {
+      const defaultProvider = readCliMeta().lastProvider;
+      const selectedProvider = await pickProvider(defaultProvider);
+      await writeLastProvider(selectedProvider);
+      await runWithProviderLock(selectedProvider, async () => {
+        await cmdInteractiveSwitch();
+      });
+      return;
+    }
+    await runWithProviderLock(provider, async () => {
       await cmdInteractiveSwitch();
     });
     return;
   }
+
+  if (isHelpCommand) {
+    showHelp();
+    return;
+  }
+
+  if (!provider) {
+    console.error("Error: Provider is required for non-interactive commands.");
+    console.error("Try: caflip claude list");
+    process.exit(2);
+  }
+  setActiveProvider(provider);
 
   switch (command) {
     case "list":
@@ -531,7 +663,7 @@ async function main(): Promise<void> {
     }
 
     case "status":
-      await cmdStatus();
+      await cmdStatus({ json: args.includes("--json") });
       break;
 
     case "alias": {
@@ -545,16 +677,10 @@ async function main(): Promise<void> {
       break;
     }
 
-    case "help":
-    case "--help":
-    case "-h":
-      showHelp();
-      break;
-
     default: {
       // Check if it's an alias
-      if (existsSync(SEQUENCE_FILE)) {
-        const seq = await loadSequence(SEQUENCE_FILE);
+      if (existsSync(activeSequenceFile)) {
+        const seq = await loadSequence(activeSequenceFile);
         const accountNum = findAccountByAlias(seq, command);
         if (accountNum) {
           await runWithLock(async () => {
