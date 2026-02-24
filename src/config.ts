@@ -41,6 +41,9 @@ export const RESERVED_COMMANDS = [
   "next",
   "status",
   "alias",
+  "all",
+  "claude",
+  "codex",
   "help",
 ] as const;
 

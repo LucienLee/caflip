@@ -121,6 +121,25 @@ export async function pickAccount(
   return wrapPromptCancellation(() => promptSelect({ message, choices, theme }));
 }
 
+export async function pickChoice(
+  message: string,
+  choices: Array<{ name: string; value: string }>,
+  promptSelect: SelectPrompt = select
+): Promise<string> {
+  const bold = (s: string) => `\u001b[1m${s}\u001b[22m`;
+  const dim = (s: string) => `\u001b[2m${s}\u001b[22m`;
+  const theme = {
+    style: {
+      keysHelpTip: (keys: Array<[string, string]>) =>
+        [...keys, ["\u238B", "cancel"]]
+          .map(([k, a]) => `${bold(k)} ${dim(a)}`)
+          .join(dim(" \u2022 ")),
+    },
+  };
+
+  return wrapPromptCancellation(() => promptSelect({ message, choices, theme }));
+}
+
 // Show interactive account picker for removal.
 export async function pickAccountForRemoval(
   seq: SequenceData,

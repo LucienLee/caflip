@@ -38,12 +38,14 @@ import { sanitizeEmailForFilename, validateAlias } from "./validation";
 import pkg from "../package.json";
 import {
   pickAccount,
+  pickChoice,
   pickAccountForRemoval,
   confirmAction,
   PromptCancelledError,
 } from "./interactive";
-import { parseProviderArgs } from "./providers/types";
+import { parseProviderArgs, type ProviderName } from "./providers/types";
 import { getProvider, type AccountProvider } from "./providers";
+import { buildGlobalPickerChoices } from "./global";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
 let activeBackupDir = BACKUP_DIR;
@@ -52,6 +54,15 @@ let activeLockDir = LOCK_DIR;
 let activeConfigsDir = CONFIGS_DIR;
 let activeCredentialsDir = CREDENTIALS_DIR;
 let activeProvider: AccountProvider = getProvider("claude");
+
+function setActiveProvider(provider: ProviderName): void {
+  activeBackupDir = getBackupDir(provider);
+  activeSequenceFile = getSequenceFile(provider);
+  activeLockDir = getLockDir(provider);
+  activeConfigsDir = getConfigsDir(provider);
+  activeCredentialsDir = getCredentialsDir(provider);
+  activeProvider = getProvider(provider);
+}
 
 // Ensure backup directories exist.
 function setupDirectories(): void {
@@ -485,6 +496,61 @@ async function cmdInteractiveSwitch(): Promise<void> {
   await performSwitch(seq, selected, { currentEmail });
 }
 
+async function cmdGlobalInteractiveSwitch(
+  runWithProviderLock: (provider: ProviderName, fn: () => Promise<void>) => Promise<void>
+): Promise<void> {
+  const providerSnapshots: Array<{
+    provider: ProviderName;
+    sequenceData: SequenceData | null;
+    currentEmail: string;
+  }> = [];
+
+  for (const provider of ["claude", "codex"] as const) {
+    setActiveProvider(provider);
+    let seq: SequenceData | null = null;
+    if (existsSync(activeSequenceFile)) {
+      seq = await loadSequence(activeSequenceFile);
+    }
+    providerSnapshots.push({
+      provider,
+      sequenceData: seq,
+      currentEmail: getCurrentAccount(),
+    });
+  }
+
+  const choices = buildGlobalPickerChoices(providerSnapshots);
+  if (choices.length === 0) {
+    throw new Error(
+      "No accounts managed yet. Run: caflip add (Claude) or caflip codex add (Codex)"
+    );
+  }
+
+  const selected = await pickChoice(
+    `caflip v${pkg.version} — Switch account (Claude + Codex):`,
+    choices
+  );
+
+  if (selected.startsWith("add:")) {
+    const provider = selected.split(":")[1] as ProviderName;
+    await runWithProviderLock(provider, async () => {
+      setActiveProvider(provider);
+      await cmdAdd();
+    });
+    return;
+  }
+
+  const parts = selected.split(":");
+  const provider = parts[1] as ProviderName;
+  const accountNum = parts[2];
+  await runWithProviderLock(provider, async () => {
+    setActiveProvider(provider);
+    const seq = await loadSequence(activeSequenceFile);
+    await syncSequenceActiveAccount(seq);
+    const currentEmail = getCurrentAccount();
+    await performSwitch(seq, accountNum, { currentEmail });
+  });
+}
+
 function showHelp(): void {
   console.log(`caflip - Coding Agent Account Switch (Claude Code + Codex)
 
@@ -494,6 +560,7 @@ Usage:
 
 Commands:
   (no args)                            Interactive account picker
+  all                                  Interactive picker across Claude + Codex
   <alias>                              Switch to account by alias
   list                                 List all managed accounts
   add [--alias <name>]                 Add current account
@@ -505,6 +572,7 @@ Commands:
 
 Examples:
   caflip                               Pick Claude account interactively (default provider)
+  caflip all                           Pick across Claude + Codex in one list
   caflip work                          Switch Claude account by alias
   caflip add --alias personal          Add current Claude account with alias
   caflip codex list                    List managed Codex accounts
@@ -520,12 +588,7 @@ async function main(): Promise<void> {
   const provider = parsed.provider;
   const args = parsed.commandArgs;
 
-  activeBackupDir = getBackupDir(provider);
-  activeSequenceFile = getSequenceFile(provider);
-  activeLockDir = getLockDir(provider);
-  activeConfigsDir = getConfigsDir(provider);
-  activeCredentialsDir = getCredentialsDir(provider);
-  activeProvider = getProvider(provider);
+  setActiveProvider(provider);
   const command = args[0];
   let lockHeld = false;
 
@@ -541,6 +604,13 @@ async function main(): Promise<void> {
         lockHeld = false;
       }
     }
+  };
+  const runWithProviderLock = async (
+    targetProvider: ProviderName,
+    fn: () => Promise<void>
+  ): Promise<void> => {
+    setActiveProvider(targetProvider);
+    await runWithLock(fn);
   };
 
   // No args: interactive picker
@@ -602,6 +672,10 @@ async function main(): Promise<void> {
     case "--help":
     case "-h":
       showHelp();
+      break;
+
+    case "all":
+      await cmdGlobalInteractiveSwitch(runWithProviderLock);
       break;
 
     default: {

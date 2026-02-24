@@ -39,6 +39,9 @@ describe("config constants", () => {
     expect(RESERVED_COMMANDS).toContain("next");
     expect(RESERVED_COMMANDS).toContain("status");
     expect(RESERVED_COMMANDS).toContain("alias");
+    expect(RESERVED_COMMANDS).toContain("all");
+    expect(RESERVED_COMMANDS).toContain("claude");
+    expect(RESERVED_COMMANDS).toContain("codex");
     expect(RESERVED_COMMANDS).toContain("help");
   });
 });

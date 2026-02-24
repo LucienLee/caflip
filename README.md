@@ -59,6 +59,9 @@ caflip add --alias work
 # Switch Claude accounts interactively
 caflip
 
+# Switch across Claude + Codex in one interactive list
+caflip all
+
 # Switch Claude by alias
 caflip work
 caflip personal
@@ -79,6 +82,7 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 | Command | Description |
 |---|---|
 | `caflip [command]` | Run command for Claude provider (default) |
+| `caflip all` | Interactive picker across Claude + Codex |
 | `caflip claude [command]` | Run command for Claude provider explicitly |
 | `caflip codex [command]` | Run command for Codex provider explicitly |
 | `caflip [provider]` | Interactive account picker for that provider |
