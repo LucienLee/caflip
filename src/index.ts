@@ -488,25 +488,29 @@ async function cmdInteractiveSwitch(): Promise<void> {
 function showHelp(): void {
   console.log(`caflip - Coding Agent Account Switch (Claude Code + Codex)
 
-Usage: caflip [command]
+Usage:
+  caflip [command]
+  caflip <claude|codex> [command]
 
 Commands:
-  (no args)                   Interactive account picker
-  <alias>                     Switch to account by alias
-  list                        List all managed accounts
-  add [--alias <name>]        Add current account
-  remove [<email>]            Remove an account
-  next                        Rotate to next account
-  status                      Show current account
-  alias <name> [<email>]      Set alias for current or target account
-  help                        Show this help
+  (no args)                            Interactive account picker
+  <alias>                              Switch to account by alias
+  list                                 List all managed accounts
+  add [--alias <name>]                 Add current account
+  remove [<email>]                     Remove an account
+  next                                 Rotate to next account
+  status                               Show current account
+  alias <name> [<email>]               Set alias for current or target account
+  help                                 Show this help
 
 Examples:
-  caflip                      Pick account interactively
-  caflip work                 Switch to "work" alias
-  caflip add --alias personal Add current account with alias
-  caflip alias work           Set alias "work" for current account
-  caflip alias work user@company.com  Set alias "work" for target email`);
+  caflip                               Pick Claude account interactively (default provider)
+  caflip work                          Switch Claude account by alias
+  caflip add --alias personal          Add current Claude account with alias
+  caflip codex list                    List managed Codex accounts
+  caflip codex add --alias work        Add current Codex account with alias
+  caflip codex alias work user@company.com
+                                       Set Codex alias for target email`);
 }
 
 // --- Main ---

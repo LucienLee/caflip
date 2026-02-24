@@ -50,7 +50,8 @@ describe("provider selection", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("Usage: caflip [command]");
+    expect(stdout).toContain("Usage:");
+    expect(stdout).toContain("caflip <claude|codex> [command]");
 
     rmSync(testHome, { recursive: true, force: true });
   });
