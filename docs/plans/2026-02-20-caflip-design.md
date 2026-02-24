@@ -1,4 +1,4 @@
-# ccflip Design Document
+# caflip Design Document
 
 Date: 2026-02-20
 
@@ -20,25 +20,25 @@ The original `ccswitch.sh` is a Bash script that manages multiple Claude Code ac
 ## CLI Design
 
 ```
-ccflip              # No args → interactive account picker + switch
-ccflip <alias>      # Switch to account by alias (e.g. ccflip work)
-ccflip list         # List accounts, highlight active, show aliases
-ccflip add          # Register the currently logged-in account
-ccflip add --alias work   # Register and assign alias in one step
-ccflip remove       # Interactive picker to remove (or: ccflip remove 2)
-ccflip next         # Rotate to next account in sequence
-ccflip status       # Print current account email (for shell prompt integration)
-ccflip alias <name> <account>  # Assign alias to existing account (by email or number)
+caflip              # No args → interactive account picker + switch
+caflip <alias>      # Switch to account by alias (e.g. caflip work)
+caflip list         # List accounts, highlight active, show aliases
+caflip add          # Register the currently logged-in account
+caflip add --alias work   # Register and assign alias in one step
+caflip remove       # Interactive picker to remove (or: caflip remove 2)
+caflip next         # Rotate to next account in sequence
+caflip status       # Print current account email (for shell prompt integration)
+caflip alias <name> <account>  # Assign alias to existing account (by email or number)
 ```
 
-`ccflip` with no arguments is the primary interaction: pick an account from an interactive list, switch to it. One command for the most common operation.
+`caflip` with no arguments is the primary interaction: pick an account from an interactive list, switch to it. One command for the most common operation.
 
-If the first argument matches a known alias, it acts as a shortcut to switch directly. For example, `ccflip work` switches to whichever account has the alias "work". If the argument doesn't match any alias or known subcommand, it prints an error.
+If the first argument matches a known alias, it acts as a shortcut to switch directly. For example, `caflip work` switches to whichever account has the alias "work". If the argument doesn't match any alias or known subcommand, it prints an error.
 
 ## Project Structure
 
 ```
-ccflip/
+caflip/
 ├── src/
 │   ├── index.ts           # CLI entry point (command routing)
 │   ├── accounts.ts        # Account CRUD (add, remove, list, read sequence)
@@ -81,16 +81,16 @@ Example interaction:
 
 ## Account Aliases
 
-Aliases are optional short names for accounts. They make switching fast: `ccflip work` instead of `ccflip` → arrow keys → Enter.
+Aliases are optional short names for accounts. They make switching fast: `caflip work` instead of `caflip` → arrow keys → Enter.
 
 Setting aliases:
-- `ccflip add --alias work` — set alias when adding an account
-- `ccflip alias work lucien@aibor.io` — set alias on an existing account (by email)
-- `ccflip alias work 2` — set alias on an existing account (by number)
+- `caflip add --alias work` — set alias when adding an account
+- `caflip alias work lucien@aibor.io` — set alias on an existing account (by email)
+- `caflip alias work 2` — set alias on an existing account (by number)
 
 Using aliases:
-- `ccflip work` — switch to the account aliased as "work"
-- `ccflip list` output includes aliases: `2: lucien@aibor.io [work] (active)`
+- `caflip work` — switch to the account aliased as "work"
+- `caflip list` output includes aliases: `2: lucien@aibor.io [work] (active)`
 - Interactive picker shows aliases: `2: lucien@aibor.io [work]`
 
 Storage: aliases are stored in the `alias` field of each account entry in `sequence.json`.
@@ -104,11 +104,11 @@ Alias validation rules:
 
 ## Shell Prompt Integration
 
-`ccflip status` outputs just the email address (one line, no decoration) so users can embed it in their shell prompt:
+`caflip status` outputs just the email address (one line, no decoration) so users can embed it in their shell prompt:
 
 ```bash
 # .zshrc example
-PROMPT='$(ccflip status) > '
+PROMPT='$(caflip status) > '
 ```
 
 ## Security
@@ -123,7 +123,7 @@ Carry forward all security fixes from the Bash version:
 
 Phase 1 (development): `bun run src/index.ts` or `bun link` for local use.
 
-Phase 2 (npm): Publish as `ccflip` on npm. Install via `bun install -g ccflip`.
+Phase 2 (npm): Publish as `caflip` on npm. Install via `bun install -g caflip`.
 
 Phase 3 (binary): `bun build --compile` to produce standalone executables for macOS (ARM64, x64), Linux (x64), and Windows (x64). Zero runtime dependencies for end users.
 

@@ -1,4 +1,4 @@
-# ccflip Implementation Plan
+# caflip Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -21,7 +21,7 @@
 
 Run:
 ```bash
-cd /Users/lucien/Projects/ccflip
+cd /Users/lucien/Projects/caflip
 bun init -y
 ```
 
@@ -29,7 +29,7 @@ bun init -y
 
 Run:
 ```bash
-cd /Users/lucien/Projects/ccflip
+cd /Users/lucien/Projects/caflip
 bun add @inquirer/prompts
 ```
 
@@ -60,11 +60,11 @@ Set the `bin` field and entry point in `package.json`:
 
 ```json
 {
-  "name": "ccflip",
+  "name": "caflip",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "ccflip": "./src/index.ts"
+    "caflip": "./src/index.ts"
   },
   "scripts": {
     "start": "bun run src/index.ts",
@@ -91,14 +91,14 @@ Create `src/index.ts`:
 
 ```typescript
 #!/usr/bin/env bun
-// ccflip - Multi-account switcher for Claude Code
-console.log("ccflip v0.1.0");
+// caflip - Multi-account switcher for Claude Code
+console.log("caflip v0.1.0");
 ```
 
 **Step 7: Verify it runs**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts`
-Expected: `ccflip v0.1.0`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts`
+Expected: `caflip v0.1.0`
 
 **Step 8: Commit**
 
@@ -182,7 +182,7 @@ describe("getClaudeConfigPath", () => {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test`
+Run: `cd /Users/lucien/Projects/caflip && bun test`
 Expected: FAIL (module not found)
 
 **Step 3: Implement config module**
@@ -248,7 +248,7 @@ export function getClaudeConfigPath(): string {
 
 **Step 4: Run tests**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test`
+Run: `cd /Users/lucien/Projects/caflip && bun test`
 Expected: All PASS
 
 **Step 5: Commit**
@@ -359,7 +359,7 @@ describe("validateAlias", () => {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test tests/validation.test.ts`
+Run: `cd /Users/lucien/Projects/caflip && bun test tests/validation.test.ts`
 Expected: FAIL
 
 **Step 3: Implement validation module**
@@ -418,7 +418,7 @@ export function validateAlias(alias: string): AliasValidationResult {
 
 **Step 4: Run tests**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test tests/validation.test.ts`
+Run: `cd /Users/lucien/Projects/caflip && bun test tests/validation.test.ts`
 Expected: All PASS
 
 **Step 5: Commit**
@@ -447,7 +447,7 @@ import { existsSync, mkdirSync, rmSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-const TEST_DIR = join(tmpdir(), "ccflip-test-" + Date.now());
+const TEST_DIR = join(tmpdir(), "caflip-test-" + Date.now());
 
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
@@ -509,7 +509,7 @@ describe("acquireLock / releaseLock", () => {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test tests/files.test.ts`
+Run: `cd /Users/lucien/Projects/caflip && bun test tests/files.test.ts`
 Expected: FAIL
 
 **Step 3: Implement file utilities**
@@ -571,7 +571,7 @@ export function releaseLock(lockDir: string): void {
 
 **Step 4: Run tests**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test tests/files.test.ts`
+Run: `cd /Users/lucien/Projects/caflip && bun test tests/files.test.ts`
 Expected: All PASS
 
 **Step 5: Commit**
@@ -613,7 +613,7 @@ import { mkdirSync, rmSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-const TEST_DIR = join(tmpdir(), "ccflip-accounts-test-" + Date.now());
+const TEST_DIR = join(tmpdir(), "caflip-accounts-test-" + Date.now());
 const TEST_SEQUENCE = join(TEST_DIR, "sequence.json");
 
 beforeEach(() => {
@@ -798,7 +798,7 @@ describe("alias operations", () => {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test tests/accounts.test.ts`
+Run: `cd /Users/lucien/Projects/caflip && bun test tests/accounts.test.ts`
 Expected: FAIL
 
 **Step 3: Implement accounts module**
@@ -951,7 +951,7 @@ export function findAccountByAlias(
 
 **Step 4: Run tests**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test tests/accounts.test.ts`
+Run: `cd /Users/lucien/Projects/caflip && bun test tests/accounts.test.ts`
 Expected: All PASS
 
 **Step 5: Commit**
@@ -1230,7 +1230,7 @@ export function deleteAccountConfig(
 
 **Step 2: Verify syntax**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun build src/credentials.ts --no-bundle 2>&1 | head -5`
+Run: `cd /Users/lucien/Projects/caflip && bun build src/credentials.ts --no-bundle 2>&1 | head -5`
 Expected: No errors
 
 **Step 3: Commit**
@@ -1301,7 +1301,7 @@ export async function confirmAction(message: string): Promise<boolean> {
 
 **Step 2: Verify syntax**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun build src/interactive.ts --no-bundle 2>&1 | head -5`
+Run: `cd /Users/lucien/Projects/caflip && bun build src/interactive.ts --no-bundle 2>&1 | head -5`
 Expected: No errors
 
 **Step 3: Commit**
@@ -1455,7 +1455,7 @@ async function performSwitch(
 
 async function cmdList(): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.log("No accounts managed yet. Run: ccflip add");
+    console.log("No accounts managed yet. Run: caflip add");
     return;
   }
 
@@ -1654,14 +1654,14 @@ async function cmdAlias(alias: string, identifier: string): Promise<void> {
 
 async function cmdInteractiveSwitch(): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.error("Error: No accounts managed yet. Run: ccflip add");
+    console.error("Error: No accounts managed yet. Run: caflip add");
     process.exit(1);
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
 
   if (seq.sequence.length === 0) {
-    console.error("Error: No accounts managed yet. Run: ccflip add");
+    console.error("Error: No accounts managed yet. Run: caflip add");
     process.exit(1);
   }
 
@@ -1670,9 +1670,9 @@ async function cmdInteractiveSwitch(): Promise<void> {
 }
 
 function showHelp(): void {
-  console.log(`ccflip - Multi-account switcher for Claude Code
+  console.log(`caflip - Multi-account switcher for Claude Code
 
-Usage: ccflip [command]
+Usage: caflip [command]
 
 Commands:
   (no args)                   Interactive account picker
@@ -1686,10 +1686,10 @@ Commands:
   help                        Show this help
 
 Examples:
-  ccflip                      Pick account interactively
-  ccflip work                 Switch to "work" alias
-  ccflip add --alias personal Add current account with alias
-  ccflip alias work 2         Set alias "work" for account 2`);
+  caflip                      Pick account interactively
+  caflip work                 Switch to "work" alias
+  caflip add --alias personal Add current account with alias
+  caflip alias work 2         Set alias "work" for account 2`);
 }
 
 // --- Main ---
@@ -1756,7 +1756,7 @@ async function main(): Promise<void> {
 
     case "alias": {
       if (!args[1] || !args[2]) {
-        console.error("Usage: ccflip alias <name> <account_number|email>");
+        console.error("Usage: caflip alias <name> <account_number|email>");
         process.exit(1);
       }
       acquireLock(LOCK_DIR);
@@ -1807,17 +1807,17 @@ main().catch((err) => {
 
 **Step 2: Verify it compiles and runs help**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts help`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts help`
 Expected: Help text displayed
 
 **Step 3: Verify list command**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts list`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts list`
 Expected: Account list (reading from existing `~/.claude-switch-backup/sequence.json`)
 
 **Step 4: Verify status command**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts status`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts status`
 Expected: Current account email
 
 **Step 5: Commit**
@@ -1833,28 +1833,28 @@ git commit -m "feat: CLI entry point with all commands, alias routing, and inter
 
 **Step 1: Run full test suite**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun test`
+Run: `cd /Users/lucien/Projects/caflip && bun test`
 Expected: All tests pass
 
 **Step 2: Verify help**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts help`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts help`
 Expected: Full help output
 
 **Step 3: Verify list**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts list`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts list`
 Expected: Shows existing accounts from `~/.claude-switch-backup/`
 
 **Step 4: Verify status**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun run src/index.ts status`
+Run: `cd /Users/lucien/Projects/caflip && bun run src/index.ts status`
 Expected: Current account email
 
 **Step 5: Test bun link for local CLI**
 
-Run: `cd /Users/lucien/Projects/ccflip && bun link`
-Then: `ccflip help`
+Run: `cd /Users/lucien/Projects/caflip && bun link`
+Then: `caflip help`
 Expected: Help output from the linked binary
 
 **Step 6: Commit any fixes**
@@ -1878,7 +1878,7 @@ Only commit this if changes were needed. Skip if everything passed clean.
 Create `README.md`:
 
 ```markdown
-# ccflip
+# caflip
 
 Multi-account switcher for Claude Code. Switch between Claude Code accounts with a single command.
 
@@ -1890,30 +1890,30 @@ Requires [Bun](https://bun.sh/):
 curl -fsSL https://bun.sh/install | bash
 ```
 
-Then install ccflip:
+Then install caflip:
 
 ```bash
-bun install -g ccflip
+bun install -g caflip
 ```
 
 ## Quick Start
 
 ```bash
 # Add your first account (must be logged into Claude Code)
-ccflip add --alias personal
+caflip add --alias personal
 
 # Log out, log into second account, add it too
-ccflip add --alias work
+caflip add --alias work
 
 # Switch accounts interactively
-ccflip
+caflip
 
 # Switch by alias
-ccflip work
-ccflip personal
+caflip work
+caflip personal
 
 # Rotate to next account
-ccflip next
+caflip next
 ```
 
 After switching, restart Claude Code to use the new authentication.
@@ -1922,15 +1922,15 @@ After switching, restart Claude Code to use the new authentication.
 
 | Command | Description |
 |---|---|
-| `ccflip` | Interactive account picker |
-| `ccflip <alias>` | Switch by alias |
-| `ccflip list` | List managed accounts |
-| `ccflip add [--alias name]` | Add current account |
-| `ccflip remove [num\|email]` | Remove an account |
-| `ccflip next` | Rotate to next account |
-| `ccflip status` | Show current account |
-| `ccflip alias <name> <num\|email>` | Set alias for account |
-| `ccflip help` | Show help |
+| `caflip` | Interactive account picker |
+| `caflip <alias>` | Switch by alias |
+| `caflip list` | List managed accounts |
+| `caflip add [--alias name]` | Add current account |
+| `caflip remove [num\|email]` | Remove an account |
+| `caflip next` | Rotate to next account |
+| `caflip status` | Show current account |
+| `caflip alias <name> <num\|email>` | Set alias for account |
+| `caflip help` | Show help |
 
 ## Shell Prompt Integration
 
@@ -1938,7 +1938,7 @@ Show current account in your prompt:
 
 ```bash
 # .zshrc
-PROMPT='$(ccflip status) > '
+PROMPT='$(caflip status) > '
 ```
 
 ## Data Storage

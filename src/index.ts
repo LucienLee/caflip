@@ -446,7 +446,7 @@ async function cmdInteractiveSwitch(): Promise<void> {
 }
 
 function showHelp(): void {
-  console.log(`caflip - Multi-account switcher for Claude Code
+  console.log(`caflip (formerly ccflip) - Switch between multiple Claude or Codex accounts quickly
 
 Usage: caflip [command]
 

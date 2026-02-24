@@ -1,10 +1,12 @@
-# caflip
+# caflip (Coding Agent Flipper)
 
-A super lightweight multi-account interactive switcher for Claude Code.
+A fast account switcher for coding agents like Claude Code and Codex.
 
 ![caflip interactive account picker](./docs/demo.png)
 
-caflip swaps authentication credentials between Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same. One shared environment, multiple accounts.
+caflip is built for one job: if you have multiple Claude or Codex accounts, switch between them quickly.
+
+Today, caflip focuses on Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same while switching accounts.
 
 Say you have a personal Claude Max account and a work account with API access. caflip lets you flip between them while keeping your carefully set up Claude Code config intact.
 

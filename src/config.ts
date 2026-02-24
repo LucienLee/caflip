@@ -1,4 +1,4 @@
-// ABOUTME: Configuration constants and platform detection for ccflip.
+// ABOUTME: Configuration constants and platform detection for caflip.
 // ABOUTME: Defines paths, reserved commands, and Claude config file resolution.
 
 import { homedir } from "os";
