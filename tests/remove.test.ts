@@ -33,7 +33,7 @@ describe("remove command", () => {
       )
     );
 
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "remove", "1"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "remove", "1"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",

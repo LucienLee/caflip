@@ -12,7 +12,7 @@ describe("lock cleanup", () => {
     const lockPath = join(testHome, ".caflip-backup/claude", ".lock");
 
     const proc = Bun.spawn(
-      ["bun", "run", "src/index.ts", "add"],
+      ["bun", "run", "src/index.ts", "claude", "add"],
       {
         cwd: process.cwd(),
         env: { ...process.env, HOME: testHome },
@@ -54,7 +54,7 @@ describe("lock cleanup", () => {
       )
     );
 
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "alias", "work", "1"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "alias", "work", "1"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",
@@ -77,7 +77,7 @@ describe("lock cleanup", () => {
     const backupDir = join(testHome, ".caflip-backup/claude");
     rmSync(backupDir, { recursive: true, force: true });
 
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "alias", "work"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "alias", "work"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",
@@ -104,7 +104,7 @@ describe("lock cleanup", () => {
       JSON.stringify({ pid: process.pid, startedAt: "2026-02-22T00:00:00.000Z" })
     );
 
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "add"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "add"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",

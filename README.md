@@ -49,25 +49,21 @@ bun run dev -- help
 ## Quick Start
 
 ```bash
-# Claude provider is default if omitted
 # Add your first Claude account (must already be logged in)
-caflip add --alias personal
+caflip claude add --alias personal
 
 # Add another Claude account
-caflip add --alias work
+caflip claude add --alias work
 
-# Switch Claude accounts interactively
+# Pick provider interactively, then pick account
 caflip
 
-# Switch across Claude + Codex in one interactive list
-caflip all
-
 # Switch Claude by alias
-caflip work
-caflip personal
+caflip claude work
+caflip claude personal
 
 # Rotate Claude accounts
-caflip next
+caflip claude next
 
 # Use Codex provider explicitly
 caflip codex add --alias codex-work
@@ -81,10 +77,9 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 
 | Command | Description |
 |---|---|
-| `caflip [command]` | Run command for Claude provider (default) |
-| `caflip all` | Interactive picker across Claude + Codex |
-| `caflip claude [command]` | Run command for Claude provider explicitly |
-| `caflip codex [command]` | Run command for Codex provider explicitly |
+| `caflip` | Interactive provider picker (Claude/Codex) |
+| `caflip claude [command]` | Run command for Claude provider |
+| `caflip codex [command]` | Run command for Codex provider |
 | `caflip [provider]` | Interactive account picker for that provider |
 | `caflip [provider] <alias>` | Switch by alias for that provider |
 | `caflip [provider] list` | List managed accounts |
@@ -99,10 +94,10 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 
 ```bash
 # Set alias for current active account
-caflip alias work
+caflip claude alias work
 
 # Set alias for a specific managed account
-caflip alias work hi.lucienlee@gmail.com
+caflip claude alias work hi.lucienlee@gmail.com
 
 # Codex alias
 caflip codex alias work me@company.com
@@ -116,7 +111,7 @@ Show the current account in your prompt:
 
 ```bash
 # .zshrc
-PROMPT='$(caflip status) > '
+PROMPT='$(caflip claude status) > '
 PROMPT='$(caflip codex status) > '
 ```
 

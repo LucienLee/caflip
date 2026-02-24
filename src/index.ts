@@ -39,13 +39,14 @@ import pkg from "../package.json";
 import {
   pickAccount,
   pickChoice,
+  pickProvider,
   pickAccountForRemoval,
   confirmAction,
   PromptCancelledError,
 } from "./interactive";
 import { parseProviderArgs, type ProviderName } from "./providers/types";
 import { getProvider, type AccountProvider } from "./providers";
-import { buildGlobalPickerChoices } from "./global";
+import { readCliMeta, writeLastProvider } from "./meta";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
 let activeBackupDir = BACKUP_DIR;
@@ -227,7 +228,8 @@ export async function performSwitch(
 
 async function cmdList(): Promise<void> {
   if (!existsSync(activeSequenceFile)) {
-    console.log("No accounts managed yet. Run: caflip add");
+    const providerCmd = activeProvider.name === "codex" ? "caflip codex add" : "caflip claude add";
+    console.log(`No accounts managed yet. Run: ${providerCmd}`);
     return;
   }
 
@@ -406,20 +408,40 @@ async function cmdNext(): Promise<void> {
   await performSwitch(seq, String(nextNum));
 }
 
-async function cmdStatus(): Promise<void> {
+async function cmdStatus(options?: { json?: boolean }): Promise<void> {
+  const jsonMode = options?.json ?? false;
   const email = getCurrentAccount();
+  let alias: string | null = null;
+  let managed = false;
+  if (email !== "none" && existsSync(activeSequenceFile)) {
+    const seq = await loadSequence(activeSequenceFile);
+    for (const account of Object.values(seq.accounts)) {
+      if (account.email === email) {
+        managed = true;
+        alias = account.alias ?? null;
+        break;
+      }
+    }
+  }
+
+  if (jsonMode) {
+    console.log(
+      JSON.stringify({
+        provider: activeProvider.name,
+        email: email === "none" ? null : email,
+        alias,
+        managed,
+      })
+    );
+    return;
+  }
+
   if (email === "none") {
     console.log("none");
   } else {
-    // Check if account has alias
-    if (existsSync(activeSequenceFile)) {
-      const seq = await loadSequence(activeSequenceFile);
-      for (const account of Object.values(seq.accounts)) {
-        if (account.email === email && account.alias) {
-          console.log(`${email} [${account.alias}]`);
-          return;
-        }
-      }
+    if (alias) {
+      console.log(`${email} [${alias}]`);
+      return;
     }
     console.log(email);
   }
@@ -461,31 +483,40 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
 }
 
 async function cmdInteractiveSwitch(): Promise<void> {
-  if (!existsSync(activeSequenceFile)) {
-    throw new Error("No accounts managed yet. Run: caflip add");
-  }
-
-  const seq = await loadSequence(activeSequenceFile);
-  await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
-  const shouldOfferAddCurrent =
-    currentEmail !== "none" && !accountExists(seq, currentEmail);
-  const extraChoices = shouldOfferAddCurrent
-    ? [
-        {
-          name: `+ Add current logged-in account (${currentEmail})`,
-          value: ADD_CURRENT_ACCOUNT_CHOICE,
-        },
-      ]
-    : [];
-
-  if (seq.sequence.length === 0 && !shouldOfferAddCurrent) {
-    throw new Error("No accounts managed yet. Run: caflip add");
+  const hasSequence = existsSync(activeSequenceFile);
+  const seq = hasSequence ? await loadSequence(activeSequenceFile) : null;
+  if (seq) {
+    await syncSequenceActiveAccount(seq);
   }
+
+  if (!seq || seq.sequence.length === 0) {
+    const emptyStateChoices = [
+      {
+        name: `+ Add current logged-in account${currentEmail === "none" ? "" : ` (${currentEmail})`}`,
+        value: ADD_CURRENT_ACCOUNT_CHOICE,
+      },
+      { name: "Back", value: "__back__" },
+    ];
+    const selected = await pickChoice(
+      `No managed ${getProviderLabel()} accounts yet`,
+      emptyStateChoices
+    );
+    if (selected === "__back__") {
+      return;
+    }
+    await cmdAdd();
+    return;
+  }
+
+  const shouldOfferAddCurrent = currentEmail !== "none" && !accountExists(seq, currentEmail);
+  const extraChoices = shouldOfferAddCurrent
+    ? [{ name: `+ Add current logged-in account (${currentEmail})`, value: ADD_CURRENT_ACCOUNT_CHOICE }]
+    : [];
 
   const selected = await pickAccount(
     seq,
-    `caflip v${pkg.version} — Switch to account:`,
+    `caflip v${pkg.version} — Switch ${getProviderLabel()} account:`,
     undefined,
     extraChoices
   );
@@ -496,85 +527,31 @@ async function cmdInteractiveSwitch(): Promise<void> {
   await performSwitch(seq, selected, { currentEmail });
 }
 
-async function cmdGlobalInteractiveSwitch(
-  runWithProviderLock: (provider: ProviderName, fn: () => Promise<void>) => Promise<void>
-): Promise<void> {
-  const providerSnapshots: Array<{
-    provider: ProviderName;
-    sequenceData: SequenceData | null;
-    currentEmail: string;
-  }> = [];
-
-  for (const provider of ["claude", "codex"] as const) {
-    setActiveProvider(provider);
-    let seq: SequenceData | null = null;
-    if (existsSync(activeSequenceFile)) {
-      seq = await loadSequence(activeSequenceFile);
-    }
-    providerSnapshots.push({
-      provider,
-      sequenceData: seq,
-      currentEmail: getCurrentAccount(),
-    });
-  }
-
-  const choices = buildGlobalPickerChoices(providerSnapshots);
-  if (choices.length === 0) {
-    throw new Error(
-      "No accounts managed yet. Run: caflip add (Claude) or caflip codex add (Codex)"
-    );
-  }
-
-  const selected = await pickChoice(
-    `caflip v${pkg.version} — Switch account (Claude + Codex):`,
-    choices
-  );
-
-  if (selected.startsWith("add:")) {
-    const provider = selected.split(":")[1] as ProviderName;
-    await runWithProviderLock(provider, async () => {
-      setActiveProvider(provider);
-      await cmdAdd();
-    });
-    return;
-  }
-
-  const parts = selected.split(":");
-  const provider = parts[1] as ProviderName;
-  const accountNum = parts[2];
-  await runWithProviderLock(provider, async () => {
-    setActiveProvider(provider);
-    const seq = await loadSequence(activeSequenceFile);
-    await syncSequenceActiveAccount(seq);
-    const currentEmail = getCurrentAccount();
-    await performSwitch(seq, accountNum, { currentEmail });
-  });
-}
-
 function showHelp(): void {
   console.log(`caflip - Coding Agent Account Switch (Claude Code + Codex)
 
 Usage:
-  caflip [command]
+  caflip
   caflip <claude|codex> [command]
 
 Commands:
-  (no args)                            Interactive account picker
-  all                                  Interactive picker across Claude + Codex
-  <alias>                              Switch to account by alias
-  list                                 List all managed accounts
-  add [--alias <name>]                 Add current account
-  remove [<email>]                     Remove an account
-  next                                 Rotate to next account
-  status                               Show current account
-  alias <name> [<email>]               Set alias for current or target account
+  (no args)                            Interactive provider picker
+  <provider>                           Interactive account picker for provider
+  <provider> <alias>                   Switch by alias for provider
+  <provider> list                      List all managed accounts
+  <provider> add [--alias <name>]      Add current account
+  <provider> remove [<email>]          Remove an account
+  <provider> next                      Rotate to next account
+  <provider> status [--json]           Show current account
+  <provider> alias <name> [<email>]    Set alias for current or target account
   help                                 Show this help
 
 Examples:
-  caflip                               Pick Claude account interactively (default provider)
-  caflip all                           Pick across Claude + Codex in one list
-  caflip work                          Switch Claude account by alias
-  caflip add --alias personal          Add current Claude account with alias
+  caflip                               Pick provider interactively
+  caflip claude                        Pick Claude account interactively
+  caflip claude work                   Switch Claude account by alias
+  caflip claude add --alias personal   Add current Claude account with alias
+  caflip claude status --json          Show Claude status as JSON
   caflip codex list                    List managed Codex accounts
   caflip codex add --alias work        Add current Codex account with alias
   caflip codex alias work user@company.com
@@ -585,19 +562,17 @@ Examples:
 
 async function main(): Promise<void> {
   const parsed = parseProviderArgs(process.argv.slice(2));
-  const provider = parsed.provider ?? "claude";
+  const provider = parsed.provider;
   const args = parsed.commandArgs;
-
-  setActiveProvider(provider);
   const command = args[0];
   let lockHeld = false;
 
-  const runWithLock = async (fn: () => Promise<void>): Promise<void> => {
+  const runWithLock = async <T>(fn: () => Promise<T>): Promise<T> => {
     setupDirectories();
     acquireLock(activeLockDir);
     lockHeld = true;
     try {
-      await fn();
+      return await fn();
     } finally {
       if (lockHeld) {
         releaseLock(activeLockDir);
@@ -605,21 +580,55 @@ async function main(): Promise<void> {
       }
     }
   };
-  const runWithProviderLock = async (
+  const runWithProviderLock = async <T>(
     targetProvider: ProviderName,
-    fn: () => Promise<void>
-  ): Promise<void> => {
+    fn: () => Promise<T>
+  ): Promise<T> => {
     setActiveProvider(targetProvider);
-    await runWithLock(fn);
+    return await runWithLock(fn);
   };
 
-  // No args: interactive picker
+  const isHelpCommand = command === "help" || command === "--help" || command === "-h";
+  if (!parsed.isProviderQualified && command && !isHelpCommand) {
+    if ((RESERVED_COMMANDS as readonly string[]).includes(command)) {
+      console.error("Error: Provider is required for non-interactive commands.");
+      console.error("Try: caflip claude list");
+      process.exit(2);
+    } else {
+      console.error("Error: Alias requires provider prefix.");
+      console.error("Try: caflip claude <alias> or caflip codex <alias>");
+      process.exit(2);
+    }
+  }
+
+  // No args: interactive provider picker
   if (!command) {
-    await runWithLock(async () => {
+    if (!provider) {
+      const defaultProvider = readCliMeta().lastProvider;
+      const selectedProvider = await pickProvider(defaultProvider);
+      await writeLastProvider(selectedProvider);
+      await runWithProviderLock(selectedProvider, async () => {
+        await cmdInteractiveSwitch();
+      });
+      return;
+    }
+    await runWithProviderLock(provider, async () => {
       await cmdInteractiveSwitch();
     });
     return;
   }
+
+  if (isHelpCommand) {
+    showHelp();
+    return;
+  }
+
+  if (!provider) {
+    console.error("Error: Provider is required for non-interactive commands.");
+    console.error("Try: caflip claude list");
+    process.exit(2);
+  }
+  setActiveProvider(provider);
 
   switch (command) {
     case "list":
@@ -654,7 +663,7 @@ async function main(): Promise<void> {
     }
 
     case "status":
-      await cmdStatus();
+      await cmdStatus({ json: args.includes("--json") });
       break;
 
     case "alias": {
@@ -667,16 +676,6 @@ async function main(): Promise<void> {
       });
       break;
     }
-
-    case "help":
-    case "--help":
-    case "-h":
-      showHelp();
-      break;
-
-    case "all":
-      await cmdGlobalInteractiveSwitch(runWithProviderLock);
-      break;
 
     default: {
       // Check if it's an alias
