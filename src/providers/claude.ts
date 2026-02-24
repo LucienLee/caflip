@@ -26,6 +26,7 @@ import {
 
 export interface AccountProvider {
   readonly name: "claude" | "codex";
+  getCurrentAccount(): { email: string; accountId?: string } | null;
   getCurrentAccountEmail(): string;
   readActiveAuth(): Promise<string>;
   writeActiveAuth(raw: string): Promise<void>;
@@ -61,6 +62,11 @@ function getClaudeCurrentAccountEmail(): string {
 
 export const claudeProvider: AccountProvider = {
   name: "claude",
+  getCurrentAccount: () => {
+    const email = getClaudeCurrentAccountEmail();
+    if (email === "none") return null;
+    return { email };
+  },
   getCurrentAccountEmail: getClaudeCurrentAccountEmail,
   readActiveAuth: readCredentials,
   writeActiveAuth: writeCredentials,
@@ -75,6 +81,7 @@ export const claudeProvider: AccountProvider = {
 
 export const codexProvider: AccountProvider = {
   name: "codex",
+  getCurrentAccount: getCodexCurrentAccount,
   getCurrentAccountEmail: () => getCodexCurrentAccount()?.email ?? "none",
   readActiveAuth: readCodexActiveAuth,
   writeActiveAuth: writeCodexActiveAuth,

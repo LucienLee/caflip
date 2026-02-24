@@ -13,6 +13,7 @@ describe("provider adapter registry", () => {
   test("exposes required methods for each provider", () => {
     for (const provider of [providers.claude, providers.codex]) {
       expect(typeof provider.getCurrentAccountEmail).toBe("function");
+      expect(typeof provider.getCurrentAccount).toBe("function");
       expect(typeof provider.readActiveAuth).toBe("function");
       expect(typeof provider.writeActiveAuth).toBe("function");
       expect(typeof provider.clearActiveAuth).toBe("function");

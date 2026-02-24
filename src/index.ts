@@ -65,6 +65,10 @@ function getCurrentAccount(): string {
   return activeProvider.getCurrentAccountEmail();
 }
 
+function getProviderLabel(): string {
+  return activeProvider.name === "codex" ? "Codex" : "Claude Code";
+}
+
 async function clearActiveOAuthAccount(): Promise<void> {
   const configPath = getClaudeConfigPath();
   let configObj: Record<string, unknown> = {};
@@ -128,10 +132,6 @@ export async function performSwitch(
   // Step 1: Backup current account
   if (currentEmail !== "none" && currentAccount) {
     const currentCreds = await activeProvider.readActiveAuth();
-    const configPath = getClaudeConfigPath();
-    const currentConfig = existsSync(configPath)
-      ? readFileSync(configPath, "utf-8")
-      : "";
 
     if (currentCreds) {
       await activeProvider.writeAccountAuth(
@@ -141,13 +141,19 @@ export async function performSwitch(
         activeCredentialsDir
       );
     }
-    if (currentConfig) {
+    if (activeProvider.name === "claude") {
+      const configPath = getClaudeConfigPath();
+      const currentConfig = existsSync(configPath)
+        ? readFileSync(configPath, "utf-8")
+        : "";
+      if (currentConfig) {
       await activeProvider.writeAccountConfig(
         currentAccount,
         currentEmail,
         currentConfig,
         activeConfigsDir
       );
+      }
     }
   }
 
@@ -163,7 +169,12 @@ export async function performSwitch(
     activeConfigsDir
   );
 
-  if (!targetCreds || !targetConfig) {
+  if (!targetCreds) {
+    throw new Error(
+      `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
+    );
+  }
+  if (activeProvider.name === "claude" && !targetConfig) {
     throw new Error(
       `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
     );
@@ -172,20 +183,22 @@ export async function performSwitch(
   // Step 3: Write target credentials
   await activeProvider.writeActiveAuth(targetCreds);
 
-  // Step 4: Merge oauthAccount into current config
-  const targetConfigObj = JSON.parse(targetConfig);
-  const oauthAccount = targetConfigObj.oauthAccount;
-  if (!oauthAccount) {
-    throw new Error("Invalid oauthAccount in backup");
-  }
+  // Step 4: Provider-specific config restore
+  if (activeProvider.name === "claude") {
+    const targetConfigObj = JSON.parse(targetConfig);
+    const oauthAccount = targetConfigObj.oauthAccount;
+    if (!oauthAccount) {
+      throw new Error("Invalid oauthAccount in backup");
+    }
 
-  const configPath = getClaudeConfigPath();
-  let currentConfigObj: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    currentConfigObj = JSON.parse(readFileSync(configPath, "utf-8"));
+    const configPath = getClaudeConfigPath();
+    let currentConfigObj: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      currentConfigObj = JSON.parse(readFileSync(configPath, "utf-8"));
+    }
+    currentConfigObj.oauthAccount = oauthAccount;
+    await writeJsonAtomic(configPath, currentConfigObj);
   }
-  currentConfigObj.oauthAccount = oauthAccount;
-  await writeJsonAtomic(configPath, currentConfigObj);
 
   // Step 5: Update sequence
   seq.activeAccountNumber = Number(targetAccount);
@@ -196,7 +209,7 @@ export async function performSwitch(
   const aliasStr = alias ? ` [${alias}]` : "";
   const displayLabel = getDisplayAccountLabel(seq, targetAccount);
   console.log(`Switched to ${displayLabel} (${targetEmail})${aliasStr}`);
-  console.log("\nPlease restart Claude Code to use the new authentication.\n");
+  console.log(`\nPlease restart ${getProviderLabel()} to use the new authentication.\n`);
 }
 
 // --- Command handlers ---
@@ -230,9 +243,10 @@ async function cmdAdd(alias?: string): Promise<void> {
   setupDirectories();
   await initSequenceFile(activeSequenceFile);
 
-  const currentEmail = getCurrentAccount();
+  const currentAccount = activeProvider.getCurrentAccount();
+  const currentEmail = currentAccount?.email ?? "none";
   if (currentEmail === "none") {
-    throw new Error("No active Claude account found. Please log in first.");
+    throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
   }
 
   if (!sanitizeEmailForFilename(currentEmail)) {
@@ -264,10 +278,14 @@ async function cmdAdd(alias?: string): Promise<void> {
     throw new Error("No credentials found for current account");
   }
 
-  const configPath = getClaudeConfigPath();
-  const config = readFileSync(configPath, "utf-8");
-  const configObj = JSON.parse(config);
-  const uuid = configObj.oauthAccount?.accountUuid ?? "";
+  let config = "";
+  let uuid = currentAccount?.accountId ?? "";
+  if (activeProvider.name === "claude") {
+    const configPath = getClaudeConfigPath();
+    config = readFileSync(configPath, "utf-8");
+    const configObj = JSON.parse(config);
+    uuid = configObj.oauthAccount?.accountUuid ?? "";
+  }
 
   // Add to sequence
   const updated = addAccountToSequence(seq, {
@@ -286,7 +304,9 @@ async function cmdAdd(alias?: string): Promise<void> {
     creds,
     activeCredentialsDir
   );
-  await activeProvider.writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
+  if (config) {
+    await activeProvider.writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
+  }
   await writeJsonAtomic(activeSequenceFile, updated);
 
   const aliasStr = alias ? ` [${alias}]` : "";
@@ -414,7 +434,7 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
     if (identifier) {
       throw new Error(`Account not found: ${identifier}`);
     } else if (currentEmail === "none") {
-      throw new Error("No active Claude account found. Please log in first.");
+      throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
     } else {
       throw new Error(`Current account is not managed: ${currentEmail}`);
     }
@@ -466,7 +486,7 @@ async function cmdInteractiveSwitch(): Promise<void> {
 }
 
 function showHelp(): void {
-  console.log(`caflip - Multi-account switcher for Claude Code
+  console.log(`caflip - Coding Agent Account Switch (Claude Code + Codex)
 
 Usage: caflip [command]
 
@@ -504,10 +524,6 @@ async function main(): Promise<void> {
   activeProvider = getProvider(provider);
   const command = args[0];
   let lockHeld = false;
-
-  if (provider === "codex") {
-    throw new Error("Provider codex is not implemented yet");
-  }
 
   const runWithLock = async (fn: () => Promise<void>): Promise<void> => {
     setupDirectories();

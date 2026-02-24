@@ -35,22 +35,22 @@ describe("provider selection", () => {
     );
   });
 
-  test("returns clear error when provider is selected but not implemented yet", async () => {
+  test("supports codex provider command routing", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "caflip-provider-test-"));
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "codex", "list"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "codex", "help"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",
       stderr: "pipe",
     });
 
-    const [exitCode, stderr] = await Promise.all([
+    const [exitCode, stdout] = await Promise.all([
       proc.exited,
-      new Response(proc.stderr).text(),
+      new Response(proc.stdout).text(),
     ]);
 
-    expect(exitCode).toBe(1);
-    expect(stderr).toContain("Provider codex is not implemented yet");
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Usage: caflip [command]");
 
     rmSync(testHome, { recursive: true, force: true });
   });
