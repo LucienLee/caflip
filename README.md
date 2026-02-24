@@ -2,11 +2,12 @@
 
 A fast account switcher for coding agents like Claude Code and Codex.
 
-![caflip interactive account picker](./docs/demo.png)
+![caflip provider + account interactive flow](./docs/demo.png)
+Pick provider first, then switch account.
 
 caflip is built for one job: if you have multiple Claude or Codex accounts, switch between them quickly.
 
-Today, caflip focuses on Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same while switching accounts.
+Today, caflip supports both Claude Code and Codex accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same while switching accounts.
 
 Use case: you have personal/work Claude or Codex accounts and want to switch quickly without re-login flows every time.
 
