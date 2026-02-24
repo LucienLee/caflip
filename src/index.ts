@@ -9,6 +9,11 @@ import {
   LOCK_DIR,
   CONFIGS_DIR,
   CREDENTIALS_DIR,
+  getBackupDir,
+  getSequenceFile,
+  getLockDir,
+  getConfigsDir,
+  getCredentialsDir,
   RESERVED_COMMANDS,
   getClaudeConfigPath,
 } from "./config";
@@ -48,12 +53,18 @@ import {
   confirmAction,
   PromptCancelledError,
 } from "./interactive";
+import { parseProviderArgs } from "./providers/types";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
+let activeBackupDir = BACKUP_DIR;
+let activeSequenceFile = SEQUENCE_FILE;
+let activeLockDir = LOCK_DIR;
+let activeConfigsDir = CONFIGS_DIR;
+let activeCredentialsDir = CREDENTIALS_DIR;
 
 // Ensure backup directories exist.
 function setupDirectories(): void {
-  for (const dir of [BACKUP_DIR, CONFIGS_DIR, CREDENTIALS_DIR]) {
+  for (const dir of [activeBackupDir, activeConfigsDir, activeCredentialsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 }
@@ -92,7 +103,7 @@ async function syncSequenceActiveAccount(seq: SequenceData): Promise<SequenceDat
   if (seq.activeAccountNumber !== resolvedActive) {
     seq.activeAccountNumber = resolvedActive;
     seq.lastUpdated = new Date().toISOString();
-    await writeJsonAtomic(SEQUENCE_FILE, seq);
+    await writeJsonAtomic(activeSequenceFile, seq);
   }
   return seq;
 }
@@ -117,7 +128,7 @@ export async function performSwitch(
     if (seq.activeAccountNumber !== Number(targetAccount)) {
       seq.activeAccountNumber = Number(targetAccount);
       seq.lastUpdated = new Date().toISOString();
-      await writeJsonAtomic(SEQUENCE_FILE, seq);
+      await writeJsonAtomic(activeSequenceFile, seq);
     }
     console.log(`Already using ${displayLabel} (${account.email})${aliasStr}`);
     return;
@@ -142,13 +153,13 @@ export async function performSwitch(
       await writeAccountCredentials(currentAccount, currentEmail, currentCreds);
     }
     if (currentConfig) {
-      await writeAccountConfig(currentAccount, currentEmail, currentConfig, CONFIGS_DIR);
+      await writeAccountConfig(currentAccount, currentEmail, currentConfig, activeConfigsDir);
     }
   }
 
   // Step 2: Restore target account
   const targetCreds = await readAccountCredentials(targetAccount, targetEmail);
-  const targetConfig = readAccountConfig(targetAccount, targetEmail, CONFIGS_DIR);
+  const targetConfig = readAccountConfig(targetAccount, targetEmail, activeConfigsDir);
 
   if (!targetCreds || !targetConfig) {
     throw new Error(
@@ -177,7 +188,7 @@ export async function performSwitch(
   // Step 5: Update sequence
   seq.activeAccountNumber = Number(targetAccount);
   seq.lastUpdated = new Date().toISOString();
-  await writeJsonAtomic(SEQUENCE_FILE, seq);
+  await writeJsonAtomic(activeSequenceFile, seq);
 
   const alias = seq.accounts[targetAccount].alias;
   const aliasStr = alias ? ` [${alias}]` : "";
@@ -189,12 +200,12 @@ export async function performSwitch(
 // --- Command handlers ---
 
 async function cmdList(): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     console.log("No accounts managed yet. Run: caflip add");
     return;
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
 
@@ -215,7 +226,7 @@ async function cmdList(): Promise<void> {
 
 async function cmdAdd(alias?: string): Promise<void> {
   setupDirectories();
-  await initSequenceFile(SEQUENCE_FILE);
+  await initSequenceFile(activeSequenceFile);
 
   const currentEmail = getCurrentAccount();
   if (currentEmail === "none") {
@@ -226,7 +237,7 @@ async function cmdAdd(alias?: string): Promise<void> {
     throw new Error("Current account email is not safe for storage");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
 
   if (accountExists(seq, currentEmail)) {
@@ -268,19 +279,19 @@ async function cmdAdd(alias?: string): Promise<void> {
 
   // Store backups
   await writeAccountCredentials(accountNum, currentEmail, creds);
-  await writeAccountConfig(accountNum, currentEmail, config, CONFIGS_DIR);
-  await writeJsonAtomic(SEQUENCE_FILE, updated);
+  await writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
+  await writeJsonAtomic(activeSequenceFile, updated);
 
   const aliasStr = alias ? ` [${alias}]` : "";
   console.log(`Added ${displayLabel}: ${currentEmail}${aliasStr}`);
 }
 
 async function cmdRemove(identifier?: string): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
 
   // If no identifier given, use interactive picker
@@ -329,10 +340,10 @@ async function cmdRemove(identifier?: string): Promise<void> {
 
   // Delete backup files
   await deleteAccountCredentials(accountNum, account.email);
-  deleteAccountConfig(accountNum, account.email, CONFIGS_DIR);
+  deleteAccountConfig(accountNum, account.email, activeConfigsDir);
 
   // Update sequence
-  await writeJsonAtomic(SEQUENCE_FILE, updated);
+  await writeJsonAtomic(activeSequenceFile, updated);
 
   console.log(
     `${getDisplayAccountLabel(seq, accountNum)} (${account.email}) has been removed`
@@ -340,11 +351,11 @@ async function cmdRemove(identifier?: string): Promise<void> {
 }
 
 async function cmdNext(): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
 
   if (seq.sequence.length < 2) {
@@ -361,8 +372,8 @@ async function cmdStatus(): Promise<void> {
     console.log("none");
   } else {
     // Check if account has alias
-    if (existsSync(SEQUENCE_FILE)) {
-      const seq = await loadSequence(SEQUENCE_FILE);
+    if (existsSync(activeSequenceFile)) {
+      const seq = await loadSequence(activeSequenceFile);
       for (const account of Object.values(seq.accounts)) {
         if (account.email === email && account.alias) {
           console.log(`${email} [${account.alias}]`);
@@ -375,7 +386,7 @@ async function cmdStatus(): Promise<void> {
 }
 
 async function cmdAlias(alias: string, identifier?: string): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet");
   }
 
@@ -384,7 +395,7 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
     throw new Error(result.reason);
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   if (identifier && /^\d+$/.test(identifier)) {
     throw new Error("Alias target must be an email, not a number");
   }
@@ -401,7 +412,7 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
   }
 
   const updated = setAlias(seq, accountNum, alias);
-  await writeJsonAtomic(SEQUENCE_FILE, updated);
+  await writeJsonAtomic(activeSequenceFile, updated);
 
   const account = updated.accounts[accountNum];
   console.log(
@@ -410,11 +421,11 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
 }
 
 async function cmdInteractiveSwitch(): Promise<void> {
-  if (!existsSync(SEQUENCE_FILE)) {
+  if (!existsSync(activeSequenceFile)) {
     throw new Error("No accounts managed yet. Run: caflip add");
   }
 
-  const seq = await loadSequence(SEQUENCE_FILE);
+  const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
   const shouldOfferAddCurrent =
@@ -472,19 +483,31 @@ Examples:
 // --- Main ---
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const parsed = parseProviderArgs(process.argv.slice(2));
+  const provider = parsed.provider;
+  const args = parsed.commandArgs;
+
+  activeBackupDir = getBackupDir(provider);
+  activeSequenceFile = getSequenceFile(provider);
+  activeLockDir = getLockDir(provider);
+  activeConfigsDir = getConfigsDir(provider);
+  activeCredentialsDir = getCredentialsDir(provider);
   const command = args[0];
   let lockHeld = false;
 
+  if (provider === "codex") {
+    throw new Error("Provider codex is not implemented yet");
+  }
+
   const runWithLock = async (fn: () => Promise<void>): Promise<void> => {
     setupDirectories();
-    acquireLock(LOCK_DIR);
+    acquireLock(activeLockDir);
     lockHeld = true;
     try {
       await fn();
     } finally {
       if (lockHeld) {
-        releaseLock(LOCK_DIR);
+        releaseLock(activeLockDir);
         lockHeld = false;
       }
     }
@@ -553,8 +576,8 @@ async function main(): Promise<void> {
 
     default: {
       // Check if it's an alias
-      if (existsSync(SEQUENCE_FILE)) {
-        const seq = await loadSequence(SEQUENCE_FILE);
+      if (existsSync(activeSequenceFile)) {
+        const seq = await loadSequence(activeSequenceFile);
         const accountNum = findAccountByAlias(seq, command);
         if (accountNum) {
           await runWithLock(async () => {

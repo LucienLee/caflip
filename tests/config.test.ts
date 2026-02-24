@@ -6,6 +6,11 @@ import {
   BACKUP_DIR,
   SEQUENCE_FILE,
   LOCK_DIR,
+  getBackupDir,
+  getSequenceFile,
+  getLockDir,
+  getConfigsDir,
+  getCredentialsDir,
   RESERVED_COMMANDS,
   detectPlatform,
   getClaudeConfigPath,
@@ -15,7 +20,7 @@ import { existsSync } from "fs";
 
 describe("config constants", () => {
   test("BACKUP_DIR is under home directory", () => {
-    expect(BACKUP_DIR).toBe(`${homedir()}/.claude-switch-backup`);
+    expect(BACKUP_DIR).toBe(`${homedir()}/.caflip-backup/claude`);
   });
 
   test("SEQUENCE_FILE is inside BACKUP_DIR", () => {
@@ -35,6 +40,27 @@ describe("config constants", () => {
     expect(RESERVED_COMMANDS).toContain("status");
     expect(RESERVED_COMMANDS).toContain("alias");
     expect(RESERVED_COMMANDS).toContain("help");
+  });
+});
+
+describe("provider path factories", () => {
+  test("returns provider-scoped backup directories", () => {
+    const claudeBackup = getBackupDir("claude");
+    const codexBackup = getBackupDir("codex");
+    expect(claudeBackup).toEndWith("/.caflip-backup/claude");
+    expect(codexBackup).toEndWith("/.caflip-backup/codex");
+    expect(claudeBackup).not.toBe(codexBackup);
+  });
+
+  test("returns provider-scoped sequence, lock, config, and credentials paths", () => {
+    const seq = getSequenceFile("codex");
+    const lock = getLockDir("codex");
+    const configs = getConfigsDir("codex");
+    const creds = getCredentialsDir("codex");
+    expect(seq).toEndWith("/.caflip-backup/codex/sequence.json");
+    expect(lock).toEndWith("/.caflip-backup/codex/.lock");
+    expect(configs).toEndWith("/.caflip-backup/codex/configs");
+    expect(creds).toEndWith("/.caflip-backup/codex/credentials");
   });
 });
 

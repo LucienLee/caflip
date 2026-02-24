@@ -9,7 +9,7 @@ import { join } from "path";
 describe("lock cleanup", () => {
   test("ccflip add releases lock on error", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "ccflip-lock-test-"));
-    const lockPath = join(testHome, ".claude-switch-backup", ".lock");
+    const lockPath = join(testHome, ".caflip-backup/claude", ".lock");
 
     const proc = Bun.spawn(
       ["bun", "run", "src/index.ts", "add"],
@@ -30,7 +30,7 @@ describe("lock cleanup", () => {
 
   test("ccflip alias with invalid numeric target releases lock", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "ccflip-lock-test-"));
-    const backupDir = join(testHome, ".claude-switch-backup");
+    const backupDir = join(testHome, ".caflip-backup/claude");
     const lockPath = join(backupDir, ".lock");
     mkdirSync(backupDir, { recursive: true, mode: 0o700 });
 
@@ -74,7 +74,7 @@ describe("lock cleanup", () => {
 
   test("missing backup dir should not surface lock-held error", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "ccflip-lock-test-"));
-    const backupDir = join(testHome, ".claude-switch-backup");
+    const backupDir = join(testHome, ".caflip-backup/claude");
     rmSync(backupDir, { recursive: true, force: true });
 
     const proc = Bun.spawn(["bun", "run", "src/index.ts", "alias", "work"], {
@@ -97,7 +97,7 @@ describe("lock cleanup", () => {
 
   test("does not remove another process lock when acquire fails", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "ccflip-lock-test-"));
-    const lockPath = join(testHome, ".claude-switch-backup", ".lock");
+    const lockPath = join(testHome, ".caflip-backup/claude", ".lock");
     mkdirSync(lockPath, { recursive: true, mode: 0o700 });
     await Bun.write(
       join(lockPath, "owner.json"),
