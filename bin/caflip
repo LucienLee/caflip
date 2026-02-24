@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -e
 
-# Resolve symlinks so global shims (e.g. ~/.bun/bin/ccflip) work correctly.
+# Resolve symlinks so global shims (e.g. ~/.bun/bin/caflip) work correctly.
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
   LINK_DIR="$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)"
@@ -29,5 +29,5 @@ if [ -f "$CLI" ] && command -v bun >/dev/null 2>&1; then
   exec bun "$CLI" "$@"
 fi
 
-echo "ccflip requires Node.js or Bun in PATH." >&2
+echo "caflip requires Node.js or Bun in PATH." >&2
 exit 1

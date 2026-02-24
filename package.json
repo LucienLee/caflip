@@ -1,9 +1,9 @@
 {
-  "name": "ccflip",
+  "name": "caflip",
   "version": "0.1.4",
   "type": "module",
   "bin": {
-    "ccflip": "bin/ccflip"
+    "caflip": "bin/caflip"
   },
   "files": [
     "bin",
@@ -12,7 +12,7 @@
     "install.sh"
   ],
   "scripts": {
-    "build": "bun build --compile src/index.ts --outfile ccflip",
+    "build": "bun build --compile src/index.ts --outfile caflip",
     "buildjs": "bun build src/index.ts --target=node --outfile dist/cli.js",
     "dev": "bun run src/index.ts",
     "prepublishOnly": "bun test && bun run buildjs",

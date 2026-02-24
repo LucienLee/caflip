@@ -1,12 +1,12 @@
-# ccflip
+# caflip
 
 A super lightweight multi-account interactive switcher for Claude Code.
 
-![ccflip interactive account picker](./docs/demo.png)
+![caflip interactive account picker](./docs/demo.png)
 
-ccflip swaps authentication credentials between Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same. One shared environment, multiple accounts.
+caflip swaps authentication credentials between Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same. One shared environment, multiple accounts.
 
-Say you have a personal Claude Max account and a work account with API access. ccflip lets you flip between them while keeping your carefully set up Claude Code config intact.
+Say you have a personal Claude Max account and a work account with API access. caflip lets you flip between them while keeping your carefully set up Claude Code config intact.
 
 
 ## Platform Support
@@ -23,19 +23,19 @@ Say you have a personal Claude Max account and a work account with API access. c
 ### Binary (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LucienLee/ccflip/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/LucienLee/caflip/main/install.sh | bash
 ```
 
 ### Via npm (Node.js)
 
 ```bash
-npm install -g ccflip
+npm install -g caflip
 ```
 
 ### Via Bun
 
 ```bash
-bun install -g ccflip
+bun install -g caflip
 ```
 
 ### Local Development
@@ -48,20 +48,20 @@ bun run dev -- help
 
 ```bash
 # Add your first account (must be logged into Claude Code)
-ccflip add --alias personal
+caflip add --alias personal
 
 # Log out, log into second account, add it too
-ccflip add --alias work
+caflip add --alias work
 
 # Switch accounts interactively
-ccflip
+caflip
 
 # Switch by alias
-ccflip work
-ccflip personal
+caflip work
+caflip personal
 
 # Rotate to next account
-ccflip next
+caflip next
 ```
 
 After switching, restart Claude Code to pick up the new authentication.
@@ -70,24 +70,24 @@ After switching, restart Claude Code to pick up the new authentication.
 
 | Command | Description |
 |---|---|
-| `ccflip` | Interactive account picker |
-| `ccflip <alias>` | Switch by alias |
-| `ccflip list` | List managed accounts |
-| `ccflip add [--alias name]` | Add current account |
-| `ccflip remove [email]` | Remove an account |
-| `ccflip next` | Rotate to next account |
-| `ccflip status` | Show current account |
-| `ccflip alias <name> [email]` | Set alias for current account, or for target account email |
-| `ccflip help` | Show help |
+| `caflip` | Interactive account picker |
+| `caflip <alias>` | Switch by alias |
+| `caflip list` | List managed accounts |
+| `caflip add [--alias name]` | Add current account |
+| `caflip remove [email]` | Remove an account |
+| `caflip next` | Rotate to next account |
+| `caflip status` | Show current account |
+| `caflip alias <name> [email]` | Set alias for current account, or for target account email |
+| `caflip help` | Show help |
 
 ### Alias Usage
 
 ```bash
 # Set alias for current active account
-ccflip alias work
+caflip alias work
 
 # Set alias for a specific managed account
-ccflip alias work hi.lucienlee@gmail.com
+caflip alias work hi.lucienlee@gmail.com
 ```
 
 `remove` target accepts email only. Omit it to choose from the interactive picker.
@@ -98,7 +98,7 @@ Show the current account in your prompt:
 
 ```bash
 # .zshrc
-PROMPT='$(ccflip status) > '
+PROMPT='$(caflip status) > '
 ```
 
 Account data lives in `~/.claude-switch-backup/`.

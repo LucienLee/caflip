@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-REPO="LucienLee/ccflip"
-BINARY="ccflip"
+REPO="LucienLee/caflip"
+BINARY="caflip"
 INSTALL_DIR="/usr/local/bin"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// ABOUTME: Entry point for ccflip CLI. Parses arguments and routes to command handlers.
+// ABOUTME: Entry point for caflip CLI. Parses arguments and routes to command handlers.
 // ABOUTME: Supports subcommands (list, add, remove, next, status, alias, help) and alias-based switching.
 
 import { existsSync, readFileSync, mkdirSync } from "fs";
@@ -190,7 +190,7 @@ export async function performSwitch(
 
 async function cmdList(): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.log("No accounts managed yet. Run: ccflip add");
+    console.log("No accounts managed yet. Run: caflip add");
     return;
   }
 
@@ -411,7 +411,7 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
 
 async function cmdInteractiveSwitch(): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    throw new Error("No accounts managed yet. Run: ccflip add");
+    throw new Error("No accounts managed yet. Run: caflip add");
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
@@ -429,12 +429,12 @@ async function cmdInteractiveSwitch(): Promise<void> {
     : [];
 
   if (seq.sequence.length === 0 && !shouldOfferAddCurrent) {
-    throw new Error("No accounts managed yet. Run: ccflip add");
+    throw new Error("No accounts managed yet. Run: caflip add");
   }
 
   const selected = await pickAccount(
     seq,
-    `ccflip v${pkg.version} — Switch to account:`,
+    `caflip v${pkg.version} — Switch to account:`,
     undefined,
     extraChoices
   );
@@ -446,9 +446,9 @@ async function cmdInteractiveSwitch(): Promise<void> {
 }
 
 function showHelp(): void {
-  console.log(`ccflip - Multi-account switcher for Claude Code
+  console.log(`caflip - Multi-account switcher for Claude Code
 
-Usage: ccflip [command]
+Usage: caflip [command]
 
 Commands:
   (no args)                   Interactive account picker
@@ -462,11 +462,11 @@ Commands:
   help                        Show this help
 
 Examples:
-  ccflip                      Pick account interactively
-  ccflip work                 Switch to "work" alias
-  ccflip add --alias personal Add current account with alias
-  ccflip alias work           Set alias "work" for current account
-  ccflip alias work user@company.com  Set alias "work" for target email`);
+  caflip                      Pick account interactively
+  caflip work                 Switch to "work" alias
+  caflip add --alias personal Add current account with alias
+  caflip alias work           Set alias "work" for current account
+  caflip alias work user@company.com  Set alias "work" for target email`);
 }
 
 // --- Main ---
@@ -536,7 +536,7 @@ async function main(): Promise<void> {
 
     case "alias": {
       if (!args[1]) {
-        console.error("Usage: ccflip alias <name> [<email>]");
+        console.error("Usage: caflip alias <name> [<email>]");
         process.exit(1);
       }
       await runWithLock(async () => {
