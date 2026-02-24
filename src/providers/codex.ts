@@ -4,6 +4,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { sanitizeEmailForFilename, validateAccountNumber } from "../validation";
 
 interface CodexAccount {
   email: string;
@@ -30,6 +31,15 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+function ensureBackupKeySafe(accountNum: string, email: string): void {
+  if (!validateAccountNumber(accountNum)) {
+    throw new Error(`Unsafe account number for filename: ${accountNum}`);
+  }
+  if (!sanitizeEmailForFilename(email)) {
+    throw new Error(`Unsafe email for filename: ${email}`);
+  }
+}
+
 export async function readCodexActiveAuth(): Promise<string> {
   const authPath = getCodexAuthPath();
   if (!existsSync(authPath)) {
@@ -50,6 +60,52 @@ export async function writeCodexActiveAuth(raw: string): Promise<void> {
 
 export async function clearCodexActiveAuth(): Promise<void> {
   rmSync(getCodexAuthPath(), { force: true });
+}
+
+export async function readCodexAccountAuthBackup(
+  accountNum: string,
+  email: string,
+  credentialsDir: string
+): Promise<string> {
+  ensureBackupKeySafe(accountNum, email);
+  const backupPath = join(
+    credentialsDir,
+    `.codex-auth-${accountNum}-${email}.json`
+  );
+  if (!existsSync(backupPath)) {
+    return "";
+  }
+  return readFileSync(backupPath, "utf-8");
+}
+
+export async function writeCodexAccountAuthBackup(
+  accountNum: string,
+  email: string,
+  raw: string,
+  credentialsDir: string
+): Promise<void> {
+  ensureBackupKeySafe(accountNum, email);
+  mkdirSync(credentialsDir, { recursive: true, mode: 0o700 });
+  chmodSync(credentialsDir, 0o700);
+  const backupPath = join(
+    credentialsDir,
+    `.codex-auth-${accountNum}-${email}.json`
+  );
+  writeFileSync(backupPath, raw, { mode: 0o600 });
+  chmodSync(backupPath, 0o600);
+}
+
+export async function deleteCodexAccountAuthBackup(
+  accountNum: string,
+  email: string,
+  credentialsDir: string
+): Promise<void> {
+  ensureBackupKeySafe(accountNum, email);
+  const backupPath = join(
+    credentialsDir,
+    `.codex-auth-${accountNum}-${email}.json`
+  );
+  rmSync(backupPath, { force: true });
 }
 
 export function getCodexCurrentAccount(): CodexAccount | null {

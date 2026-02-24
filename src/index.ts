@@ -33,17 +33,6 @@ import {
   findAccountByAlias,
   type SequenceData,
 } from "./accounts";
-import {
-  readCredentials,
-  writeCredentials,
-  readAccountCredentials,
-  writeAccountCredentials,
-  deleteAccountCredentials,
-  clearActiveCredentials,
-  readAccountConfig,
-  writeAccountConfig,
-  deleteAccountConfig,
-} from "./credentials";
 import { writeJsonAtomic, acquireLock, releaseLock } from "./files";
 import { sanitizeEmailForFilename, validateAlias } from "./validation";
 import pkg from "../package.json";
@@ -54,6 +43,7 @@ import {
   PromptCancelledError,
 } from "./interactive";
 import { parseProviderArgs } from "./providers/types";
+import { getProvider, type AccountProvider } from "./providers";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
 let activeBackupDir = BACKUP_DIR;
@@ -61,6 +51,7 @@ let activeSequenceFile = SEQUENCE_FILE;
 let activeLockDir = LOCK_DIR;
 let activeConfigsDir = CONFIGS_DIR;
 let activeCredentialsDir = CREDENTIALS_DIR;
+let activeProvider: AccountProvider = getProvider("claude");
 
 // Ensure backup directories exist.
 function setupDirectories(): void {
@@ -71,14 +62,7 @@ function setupDirectories(): void {
 
 // Read current account email from Claude config.
 function getCurrentAccount(): string {
-  const configPath = getClaudeConfigPath();
-  if (!existsSync(configPath)) return "none";
-  try {
-    const content = JSON.parse(readFileSync(configPath, "utf-8"));
-    return content?.oauthAccount?.emailAddress ?? "none";
-  } catch {
-    return "none";
-  }
+  return activeProvider.getCurrentAccountEmail();
 }
 
 async function clearActiveOAuthAccount(): Promise<void> {
@@ -143,23 +127,41 @@ export async function performSwitch(
 
   // Step 1: Backup current account
   if (currentEmail !== "none" && currentAccount) {
-    const currentCreds = await readCredentials();
+    const currentCreds = await activeProvider.readActiveAuth();
     const configPath = getClaudeConfigPath();
     const currentConfig = existsSync(configPath)
       ? readFileSync(configPath, "utf-8")
       : "";
 
     if (currentCreds) {
-      await writeAccountCredentials(currentAccount, currentEmail, currentCreds);
+      await activeProvider.writeAccountAuth(
+        currentAccount,
+        currentEmail,
+        currentCreds,
+        activeCredentialsDir
+      );
     }
     if (currentConfig) {
-      await writeAccountConfig(currentAccount, currentEmail, currentConfig, activeConfigsDir);
+      await activeProvider.writeAccountConfig(
+        currentAccount,
+        currentEmail,
+        currentConfig,
+        activeConfigsDir
+      );
     }
   }
 
   // Step 2: Restore target account
-  const targetCreds = await readAccountCredentials(targetAccount, targetEmail);
-  const targetConfig = readAccountConfig(targetAccount, targetEmail, activeConfigsDir);
+  const targetCreds = await activeProvider.readAccountAuth(
+    targetAccount,
+    targetEmail,
+    activeCredentialsDir
+  );
+  const targetConfig = activeProvider.readAccountConfig(
+    targetAccount,
+    targetEmail,
+    activeConfigsDir
+  );
 
   if (!targetCreds || !targetConfig) {
     throw new Error(
@@ -168,7 +170,7 @@ export async function performSwitch(
   }
 
   // Step 3: Write target credentials
-  await writeCredentials(targetCreds);
+  await activeProvider.writeActiveAuth(targetCreds);
 
   // Step 4: Merge oauthAccount into current config
   const targetConfigObj = JSON.parse(targetConfig);
@@ -257,7 +259,7 @@ async function cmdAdd(alias?: string): Promise<void> {
   }
 
   // Read current credentials and config
-  const creds = await readCredentials();
+  const creds = await activeProvider.readActiveAuth();
   if (!creds) {
     throw new Error("No credentials found for current account");
   }
@@ -278,8 +280,13 @@ async function cmdAdd(alias?: string): Promise<void> {
   const displayLabel = getDisplayAccountLabel(updated, accountNum);
 
   // Store backups
-  await writeAccountCredentials(accountNum, currentEmail, creds);
-  await writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
+  await activeProvider.writeAccountAuth(
+    accountNum,
+    currentEmail,
+    creds,
+    activeCredentialsDir
+  );
+  await activeProvider.writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
   await writeJsonAtomic(activeSequenceFile, updated);
 
   const aliasStr = alias ? ` [${alias}]` : "";
@@ -334,13 +341,15 @@ async function cmdRemove(identifier?: string): Promise<void> {
   if (action.type === "switch") {
     await performSwitch(seq, action.targetAccountNumber);
   } else if (action.type === "logout") {
-    await clearActiveCredentials();
-    await clearActiveOAuthAccount();
+    await activeProvider.clearActiveAuth();
+    if (activeProvider.name === "claude") {
+      await clearActiveOAuthAccount();
+    }
   }
 
   // Delete backup files
-  await deleteAccountCredentials(accountNum, account.email);
-  deleteAccountConfig(accountNum, account.email, activeConfigsDir);
+  await activeProvider.deleteAccountAuth(accountNum, account.email, activeCredentialsDir);
+  activeProvider.deleteAccountConfig(accountNum, account.email, activeConfigsDir);
 
   // Update sequence
   await writeJsonAtomic(activeSequenceFile, updated);
@@ -492,6 +501,7 @@ async function main(): Promise<void> {
   activeLockDir = getLockDir(provider);
   activeConfigsDir = getConfigsDir(provider);
   activeCredentialsDir = getCredentialsDir(provider);
+  activeProvider = getProvider(provider);
   const command = args[0];
   let lockHeld = false;
 
