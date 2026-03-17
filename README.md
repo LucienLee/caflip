@@ -29,6 +29,12 @@ Use case: you have personal/work Claude or Codex accounts and want to switch qui
 curl -fsSL https://raw.githubusercontent.com/LucienLee/caflip/main/install.sh | bash
 ```
 
+To uninstall the standalone binary installed by this script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LucienLee/caflip/main/uninstall.sh | bash
+```
+
 ### Via npm (Node.js)
 
 ```bash
@@ -39,6 +45,13 @@ npm install -g caflip
 
 ```bash
 bun install -g caflip
+```
+
+For package-manager installs, uninstall with the same package manager:
+
+```bash
+npm uninstall -g caflip
+bun remove -g caflip
 ```
 
 ### Local Development

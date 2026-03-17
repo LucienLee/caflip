@@ -3,7 +3,7 @@ set -e
 
 REPO="LucienLee/caflip"
 BINARY="caflip"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
