@@ -26,4 +26,11 @@ describe("install scripts", () => {
     expect(uninstallScript).toContain('INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"');
     expect(uninstallScript).toContain('TARGET="${INSTALL_DIR}/${BINARY}"');
   });
+
+  test("uninstall checks install directory permissions before removing", () => {
+    const uninstallScript = readRepoFile("uninstall.sh");
+
+    expect(uninstallScript).toContain('if [ -w "$INSTALL_DIR" ]; then');
+    expect(uninstallScript).not.toContain('[ -w "$TARGET" ] ||');
+  });
 });

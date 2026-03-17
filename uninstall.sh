@@ -10,7 +10,7 @@ if [ ! -e "$TARGET" ]; then
   exit 0
 fi
 
-if [ -w "$TARGET" ] || [ -w "$INSTALL_DIR" ]; then
+if [ -w "$INSTALL_DIR" ]; then
   rm -f "$TARGET"
 else
   echo "Need sudo to remove ${TARGET}"
