@@ -13,6 +13,7 @@ import {
   getCredentialsDir,
   RESERVED_COMMANDS,
   detectPlatform,
+  getClaudeConfigDir,
   getClaudeConfigPath,
 } from "../src/config";
 import { homedir } from "os";
@@ -74,6 +75,22 @@ describe("detectPlatform", () => {
 });
 
 describe("getClaudeConfigPath", () => {
+  test("uses CLAUDE_CONFIG_DIR when present", () => {
+    const env = { CLAUDE_CONFIG_DIR: "/tmp/custom-claude" };
+    expect(getClaudeConfigDir(env, "/Users/tester")).toBe("/tmp/custom-claude");
+    expect(getClaudeConfigPath(env, "/Users/tester")).toBe(
+      "/tmp/custom-claude/.claude.json"
+    );
+  });
+
+  test("falls back to ~/.claude when CLAUDE_CONFIG_DIR is absent", () => {
+    const env = {};
+    expect(getClaudeConfigDir(env, "/Users/tester")).toBe("/Users/tester/.claude");
+    expect(getClaudeConfigPath(env, "/Users/tester")).toMatch(
+      /\/Users\/tester\/(\.claude\/\.claude\.json|\.claude\.json)$/
+    );
+  });
+
   test("returns a path ending in .claude.json", () => {
     const configPath = getClaudeConfigPath();
     expect(configPath).toEndWith(".claude.json");

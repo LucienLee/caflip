@@ -85,6 +85,24 @@ function backupSecretToolAttrs(accountNum: string, email: string): string[] {
   return ["service", "ccflip", "account", accountNum, "email", email];
 }
 
+export function getClaudeCredentialsDir(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  const customDir = env.CLAUDE_CONFIG_DIR?.trim();
+  if (customDir) {
+    return customDir;
+  }
+  return join(home, ".claude");
+}
+
+export function getClaudeCredentialsPath(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  return join(getClaudeCredentialsDir(env, home), ".credentials.json");
+}
+
 async function secretToolLookup(attrs: string[]): Promise<string> {
   const result = await runCommand(["secret-tool", "lookup", ...attrs]);
   if (result.exitCode === 0) {
@@ -147,16 +165,16 @@ export async function readCredentials(): Promise<string> {
     }
     case "linux":
     case "wsl": {
+      const credPath = getClaudeCredentialsPath();
+      if (existsSync(credPath)) {
+        return readFileSync(credPath, "utf-8");
+      }
+
       if (hasSecretTool()) {
         const keyringValue = await secretToolLookup(activeSecretToolAttrs());
         if (keyringValue) {
           return keyringValue;
         }
-      }
-
-      const credPath = join(homedir(), ".claude", ".credentials.json");
-      if (existsSync(credPath)) {
-        return readFileSync(credPath, "utf-8");
       }
       return "";
     }
@@ -195,18 +213,17 @@ export async function writeCredentials(credentials: string): Promise<void> {
     }
     case "linux":
     case "wsl": {
-      if (hasSecretTool()) {
-        await secretToolStore(activeSecretToolAttrs(), credentials);
-        return;
-      }
-
-      const claudeDir = join(homedir(), ".claude");
+      const claudeDir = getClaudeCredentialsDir();
       mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
       chmodSync(claudeDir, 0o700);
-      const credPath = join(claudeDir, ".credentials.json");
+      const credPath = getClaudeCredentialsPath();
       // Use fs write for runtime compatibility across Bun and Node.
       writeFileSync(credPath, credentials, { mode: 0o600 });
       chmodSync(credPath, 0o600);
+
+      if (hasSecretTool()) {
+        await secretToolStore(activeSecretToolAttrs(), credentials);
+      }
       break;
     }
   }
@@ -235,11 +252,12 @@ export async function clearActiveCredentials(): Promise<void> {
     }
     case "linux":
     case "wsl": {
+      const credPath = getClaudeCredentialsPath();
+      rmSync(credPath, { force: true });
+
       if (hasSecretTool()) {
         await secretToolClear(activeSecretToolAttrs());
       }
-      const credPath = join(homedir(), ".claude", ".credentials.json");
-      rmSync(credPath, { force: true });
       break;
     }
   }

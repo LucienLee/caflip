@@ -59,9 +59,28 @@ export function detectPlatform(): Platform {
   }
 }
 
-export function getClaudeConfigPath(): string {
-  const primary = join(homedir(), ".claude", ".claude.json");
-  const fallback = join(homedir(), ".claude.json");
+export function getClaudeConfigDir(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  const customDir = env.CLAUDE_CONFIG_DIR?.trim();
+  if (customDir) {
+    return customDir;
+  }
+  return join(home, ".claude");
+}
+
+export function getClaudeConfigPath(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  const customDir = env.CLAUDE_CONFIG_DIR?.trim();
+  if (customDir) {
+    return join(customDir, ".claude.json");
+  }
+
+  const primary = join(getClaudeConfigDir(env, home), ".claude.json");
+  const fallback = join(home, ".claude.json");
 
   if (existsSync(primary)) {
     try {

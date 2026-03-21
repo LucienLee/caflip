@@ -17,7 +17,7 @@ Use case: you have personal/work Claude or Codex accounts and want to switch qui
 | Platform | Credential Storage |
 |---|---|
 | macOS | System Keychain |
-| Linux | `secret-tool` keyring (preferred), file-based fallback (owner-only access) |
+| Linux | `CLAUDE_CONFIG_DIR/.credentials.json` when set, otherwise `~/.claude/.credentials.json`; `secret-tool` is kept as compatibility sync |
 | WSL | Same as Linux |
 | Windows | Not yet supported |
 
@@ -132,6 +132,10 @@ PROMPT='$(caflip codex status) > '
 Account data lives in:
 - `~/.caflip-backup/claude/`
 - `~/.caflip-backup/codex/`
+
+On Linux and WSL, caflip follows Claude's config root for active Claude credentials and config:
+- if `CLAUDE_CONFIG_DIR` is set, caflip reads `"$CLAUDE_CONFIG_DIR/.credentials.json"` and `"$CLAUDE_CONFIG_DIR/.claude.json"`
+- otherwise it falls back to `~/.claude/.credentials.json` and then Claude's standard config lookup
 
 ## Credits
 
