@@ -57,7 +57,11 @@ export async function readCodexActiveAuth(): Promise<string> {
   if (!existsSync(authPath)) {
     return "";
   }
-  return readFileSync(authPath, "utf-8");
+  try {
+    return readFileSync(authPath, "utf-8");
+  } catch {
+    return "";
+  }
 }
 
 export async function writeCodexActiveAuth(raw: string): Promise<void> {
@@ -87,7 +91,11 @@ export async function readCodexAccountAuthBackup(
   if (!existsSync(backupPath)) {
     return "";
   }
-  return readFileSync(backupPath, "utf-8");
+  try {
+    return readFileSync(backupPath, "utf-8");
+  } catch {
+    return "";
+  }
 }
 
 export async function writeCodexAccountAuthBackup(
