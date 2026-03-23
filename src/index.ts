@@ -2,7 +2,7 @@
 // ABOUTME: Entry point for caflip CLI. Parses arguments and routes to command handlers.
 // ABOUTME: Supports subcommands (list, add, remove, next, status, alias, help) and alias-based switching.
 
-import { existsSync, readFileSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 import {
   BACKUP_DIR,
   SEQUENCE_FILE,
@@ -15,7 +15,6 @@ import {
   getConfigsDir,
   getCredentialsDir,
   RESERVED_COMMANDS,
-  getClaudeConfigPath,
 } from "./config";
 import {
   initSequenceFile,
@@ -44,9 +43,11 @@ import {
   confirmAction,
   PromptCancelledError,
 } from "./interactive";
+import { runLoginCommand } from "./login/runner";
 import { parseProviderArgs, type ProviderName } from "./providers/types";
 import { getProvider, type AccountProvider } from "./providers";
 import { readCliMeta, writeLastProvider } from "./meta";
+import { SUPPORTED_PROVIDERS } from "./providers/types";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
 let activeBackupDir = BACKUP_DIR;
@@ -81,21 +82,17 @@ function getProviderLabel(): string {
   return activeProvider.name === "codex" ? "Codex" : "Claude Code";
 }
 
-async function clearActiveOAuthAccount(): Promise<void> {
-  const configPath = getClaudeConfigPath();
-  let configObj: Record<string, unknown> = {};
-
-  if (existsSync(configPath)) {
-    try {
-      configObj = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch {
-      configObj = {};
-    }
-  }
-
-  delete configObj.oauthAccount;
-  await writeJsonAtomic(configPath, configObj);
+function showProviderRequiredError(command: string): never {
+  console.error(`Error: ${command} requires provider prefix.`);
+  console.error(`Try: caflip claude ${command} or caflip codex ${command}`);
+  process.exit(2);
 }
+
+type RegisterCurrentActiveAccountResult = {
+  action: "added" | "updated" | "unchanged";
+  accountNum: string;
+  email: string;
+};
 
 async function syncSequenceActiveAccount(seq: SequenceData): Promise<SequenceData> {
   const currentEmail = getCurrentAccount();
@@ -106,6 +103,144 @@ async function syncSequenceActiveAccount(seq: SequenceData): Promise<SequenceDat
     await writeJsonAtomic(activeSequenceFile, seq);
   }
   return seq;
+}
+
+async function registerCurrentActiveAccount(options?: {
+  alias?: string;
+  updateIfExists?: boolean;
+  expectedEmail?: string;
+}): Promise<RegisterCurrentActiveAccountResult> {
+  const currentAccount = activeProvider.getCurrentAccount();
+  const currentEmail = currentAccount?.email ?? "none";
+  if (currentEmail === "none") {
+    throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
+  }
+
+  if (!sanitizeEmailForFilename(currentEmail)) {
+    throw new Error("Current account email is not safe for storage");
+  }
+  if (options?.expectedEmail && currentEmail !== options.expectedEmail) {
+    throw new Error(
+      `Active ${getProviderLabel()} account changed during login verification: expected ${options.expectedEmail}, got ${currentEmail}`
+    );
+  }
+
+  setupDirectories();
+  await initSequenceFile(activeSequenceFile);
+
+  const seq = await loadSequence(activeSequenceFile);
+  await syncSequenceActiveAccount(seq);
+
+  if (options?.alias) {
+    const result = validateAlias(options.alias);
+    if (!result.valid) {
+      throw new Error(result.reason);
+    }
+    const existingAliasTarget = findAccountByAlias(seq, options.alias);
+    const currentAccountNum = resolveAccountIdentifier(seq, currentEmail);
+    if (existingAliasTarget && existingAliasTarget !== currentAccountNum) {
+      throw new Error(`Alias "${options.alias}" is already in use`);
+    }
+  }
+
+  const existingAccountNum = resolveAccountIdentifier(seq, currentEmail);
+  if (existingAccountNum) {
+    if (!options?.updateIfExists) {
+      console.log(`Account ${currentEmail} is already managed.`);
+      return {
+        action: "unchanged",
+        accountNum: existingAccountNum,
+        email: currentEmail,
+      };
+    }
+  }
+
+  const creds = await activeProvider.readActiveAuth();
+  if (!creds) {
+    throw new Error("No credentials found for current account");
+  }
+
+  const config = await activeProvider.readActiveConfig();
+  let uuid = currentAccount?.accountId ?? "";
+  if (activeProvider.usesAccountConfig && !config) {
+    throw new Error("No config found for current account");
+  }
+
+  if (existingAccountNum) {
+    const updatedSeq: SequenceData = {
+      ...seq,
+      activeAccountNumber: Number(existingAccountNum),
+      lastUpdated: new Date().toISOString(),
+      accounts: {
+        ...seq.accounts,
+        [existingAccountNum]: {
+          ...seq.accounts[existingAccountNum],
+          uuid,
+          ...(options?.alias ? { alias: options.alias } : {}),
+        },
+      },
+    };
+
+    await activeProvider.writeAccountAuth(
+      existingAccountNum,
+      currentEmail,
+      creds,
+      activeCredentialsDir
+    );
+    if (config) {
+      await activeProvider.writeAccountConfig(
+        existingAccountNum,
+        currentEmail,
+        config,
+        activeConfigsDir
+      );
+    }
+    await writeJsonAtomic(activeSequenceFile, updatedSeq);
+
+    return {
+      action: "updated",
+      accountNum: existingAccountNum,
+      email: currentEmail,
+    };
+  }
+
+  const updated = addAccountToSequence(seq, {
+    email: currentEmail,
+    uuid,
+    alias: options?.alias,
+  });
+
+  const accountNum = String(updated.activeAccountNumber);
+  await activeProvider.writeAccountAuth(
+    accountNum,
+    currentEmail,
+    creds,
+    activeCredentialsDir
+  );
+  if (config) {
+    await activeProvider.writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
+  }
+  await writeJsonAtomic(activeSequenceFile, updated);
+
+  return {
+    action: "added",
+    accountNum,
+    email: currentEmail,
+  };
+}
+
+function getLoginPassthroughArgs(args: string[]): string[] {
+  const passthroughIdx = args.indexOf("--");
+  if (passthroughIdx === -1) {
+    if (args.length > 0) {
+      throw new Error("Provider login arguments must be passed after --");
+    }
+    return [];
+  }
+  if (passthroughIdx !== 0) {
+    throw new Error("Provider login arguments must be passed after --");
+  }
+  return args.slice(passthroughIdx + 1);
 }
 
 // Perform the actual account switch.
@@ -153,18 +288,15 @@ export async function performSwitch(
         activeCredentialsDir
       );
     }
-    if (activeProvider.name === "claude") {
-      const configPath = getClaudeConfigPath();
-      const currentConfig = existsSync(configPath)
-        ? readFileSync(configPath, "utf-8")
-        : "";
+    if (activeProvider.usesAccountConfig) {
+      const currentConfig = await activeProvider.readActiveConfig();
       if (currentConfig) {
-      await activeProvider.writeAccountConfig(
-        currentAccount,
-        currentEmail,
-        currentConfig,
-        activeConfigsDir
-      );
+        await activeProvider.writeAccountConfig(
+          currentAccount,
+          currentEmail,
+          currentConfig,
+          activeConfigsDir
+        );
       }
     }
   }
@@ -186,7 +318,7 @@ export async function performSwitch(
       `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
     );
   }
-  if (activeProvider.name === "claude" && !targetConfig) {
+  if (activeProvider.usesAccountConfig && !targetConfig) {
     throw new Error(
       `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
     );
@@ -196,20 +328,8 @@ export async function performSwitch(
   await activeProvider.writeActiveAuth(targetCreds);
 
   // Step 4: Provider-specific config restore
-  if (activeProvider.name === "claude") {
-    const targetConfigObj = JSON.parse(targetConfig);
-    const oauthAccount = targetConfigObj.oauthAccount;
-    if (!oauthAccount) {
-      throw new Error("Invalid oauthAccount in backup");
-    }
-
-    const configPath = getClaudeConfigPath();
-    let currentConfigObj: Record<string, unknown> = {};
-    if (existsSync(configPath)) {
-      currentConfigObj = JSON.parse(readFileSync(configPath, "utf-8"));
-    }
-    currentConfigObj.oauthAccount = oauthAccount;
-    await writeJsonAtomic(configPath, currentConfigObj);
+  if (targetConfig) {
+    await activeProvider.writeActiveConfig(targetConfig);
   }
 
   // Step 5: Update sequence
@@ -227,18 +347,29 @@ export async function performSwitch(
 // --- Command handlers ---
 
 async function cmdList(): Promise<void> {
-  if (!existsSync(activeSequenceFile)) {
+  const lines = await getManagedAccountLinesForActiveProvider();
+  if (!lines) {
     const providerCmd = activeProvider.name === "codex" ? "caflip codex add" : "caflip claude add";
     console.log(`No accounts managed yet. Run: ${providerCmd}`);
     return;
+  }
+
+  console.log("Accounts:");
+  for (const line of lines) {
+    console.log(line);
+  }
+}
+
+async function getManagedAccountLinesForActiveProvider(): Promise<string[] | null> {
+  if (!existsSync(activeSequenceFile)) {
+    return null;
   }
 
   const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
   const currentEmail = getCurrentAccount();
 
-  console.log("Accounts:");
-  seq.sequence.forEach((num, index) => {
+  return seq.sequence.map((num, index) => {
     const numStr = String(num);
     const account = seq.accounts[numStr];
     if (!account) {
@@ -248,82 +379,47 @@ async function cmdList(): Promise<void> {
     let line = `  ${index + 1}: ${account.email}`;
     if (account.alias) line += ` [${account.alias}]`;
     if (isActive) line += " (active)";
-    console.log(line);
+    return line;
   });
 }
 
 async function cmdAdd(alias?: string): Promise<void> {
-  setupDirectories();
-  await initSequenceFile(activeSequenceFile);
-
-  const currentAccount = activeProvider.getCurrentAccount();
-  const currentEmail = currentAccount?.email ?? "none";
-  if (currentEmail === "none") {
-    throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
-  }
-
-  if (!sanitizeEmailForFilename(currentEmail)) {
-    throw new Error("Current account email is not safe for storage");
-  }
-
-  const seq = await loadSequence(activeSequenceFile);
-  await syncSequenceActiveAccount(seq);
-
-  if (accountExists(seq, currentEmail)) {
-    console.log(`Account ${currentEmail} is already managed.`);
+  const result = await registerCurrentActiveAccount({ alias, updateIfExists: false });
+  if (result.action === "unchanged") {
     return;
   }
 
-  // Validate alias if provided
-  if (alias) {
-    const result = validateAlias(alias);
-    if (!result.valid) {
-      throw new Error(result.reason);
-    }
-    if (findAccountByAlias(seq, alias)) {
-      throw new Error(`Alias "${alias}" is already in use`);
-    }
-  }
-
-  // Read current credentials and config
-  const creds = await activeProvider.readActiveAuth();
-  if (!creds) {
-    throw new Error("No credentials found for current account");
-  }
-
-  let config = "";
-  let uuid = currentAccount?.accountId ?? "";
-  if (activeProvider.name === "claude") {
-    const configPath = getClaudeConfigPath();
-    config = readFileSync(configPath, "utf-8");
-    const configObj = JSON.parse(config);
-    uuid = configObj.oauthAccount?.accountUuid ?? "";
-  }
-
-  // Add to sequence
-  const updated = addAccountToSequence(seq, {
-    email: currentEmail,
-    uuid,
-    alias,
-  });
-
-  const accountNum = String(updated.activeAccountNumber);
-  const displayLabel = getDisplayAccountLabel(updated, accountNum);
-
-  // Store backups
-  await activeProvider.writeAccountAuth(
-    accountNum,
-    currentEmail,
-    creds,
-    activeCredentialsDir
-  );
-  if (config) {
-    await activeProvider.writeAccountConfig(accountNum, currentEmail, config, activeConfigsDir);
-  }
-  await writeJsonAtomic(activeSequenceFile, updated);
-
+  const seq = await loadSequence(activeSequenceFile);
+  const displayLabel = getDisplayAccountLabel(seq, result.accountNum);
   const aliasStr = alias ? ` [${alias}]` : "";
-  console.log(`Added ${displayLabel}: ${currentEmail}${aliasStr}`);
+  console.log(`Added ${displayLabel}: ${result.email}${aliasStr}`);
+}
+
+async function cmdLogin(args: string[]): Promise<void> {
+  const passthroughArgs = getLoginPassthroughArgs(args);
+  const loginCommand = activeProvider.login.buildCommand(passthroughArgs);
+  const execution = await runLoginCommand(loginCommand);
+  if (execution.exitCode !== 0) {
+    throw new Error(`${getProviderLabel()} login failed`);
+  }
+
+  const verification = await activeProvider.login.verifyLogin();
+  if (!verification.ok) {
+    throw new Error(verification.reason);
+  }
+
+  const result = await registerCurrentActiveAccount({
+    updateIfExists: true,
+    expectedEmail: verification.email,
+  });
+  const seq = await loadSequence(activeSequenceFile);
+  const displayLabel = getDisplayAccountLabel(seq, result.accountNum);
+  const verb = result.action === "added" ? "Added" : "Updated";
+  console.log(`${verb} ${displayLabel}: ${result.email}`);
+}
+
+function validateLoginArgs(args: string[]): void {
+  getLoginPassthroughArgs(args);
 }
 
 async function cmdRemove(identifier?: string): Promise<void> {
@@ -375,9 +471,7 @@ async function cmdRemove(identifier?: string): Promise<void> {
     await performSwitch(seq, action.targetAccountNumber);
   } else if (action.type === "logout") {
     await activeProvider.clearActiveAuth();
-    if (activeProvider.name === "claude") {
-      await clearActiveOAuthAccount();
-    }
+    await activeProvider.clearActiveConfig();
   }
 
   // Delete backup files
@@ -409,7 +503,37 @@ async function cmdNext(): Promise<void> {
 }
 
 async function cmdStatus(options?: { json?: boolean }): Promise<void> {
+  const summary = await getStatusSummaryForActiveProvider();
   const jsonMode = options?.json ?? false;
+
+  if (jsonMode) {
+    console.log(
+      JSON.stringify({
+        provider: activeProvider.name,
+        email: summary.email === "none" ? null : summary.email,
+        alias: summary.alias,
+        managed: summary.managed,
+      })
+    );
+    return;
+  }
+
+  if (summary.email === "none") {
+    console.log("none");
+  } else {
+    if (summary.alias) {
+      console.log(`${summary.email} [${summary.alias}]`);
+      return;
+    }
+    console.log(summary.email);
+  }
+}
+
+async function getStatusSummaryForActiveProvider(): Promise<{
+  email: string;
+  alias: string | null;
+  managed: boolean;
+}> {
   const email = getCurrentAccount();
   let alias: string | null = null;
   let managed = false;
@@ -424,26 +548,71 @@ async function cmdStatus(options?: { json?: boolean }): Promise<void> {
     }
   }
 
-  if (jsonMode) {
-    console.log(
-      JSON.stringify({
-        provider: activeProvider.name,
-        email: email === "none" ? null : email,
-        alias,
-        managed,
-      })
-    );
-    return;
-  }
+  return { email, alias, managed };
+}
 
-  if (email === "none") {
-    console.log("none");
-  } else {
-    if (alias) {
-      console.log(`${email} [${alias}]`);
-      return;
+async function withActiveProvider<T>(
+  provider: ProviderName,
+  fn: () => Promise<T>
+): Promise<T> {
+  const previousProvider = activeProvider.name;
+  setActiveProvider(provider);
+  try {
+    return await fn();
+  } finally {
+    setActiveProvider(previousProvider);
+  }
+}
+
+async function cmdListAllProviders(): Promise<void> {
+  for (const [index, provider] of SUPPORTED_PROVIDERS.entries()) {
+    const output = await withActiveProvider(provider, async () => {
+      const heading = getProviderLabel();
+      const lines = await getManagedAccountLinesForActiveProvider();
+      if (!lines) {
+        return {
+          heading,
+          lines: [`No accounts managed yet. Run: caflip ${provider} add`],
+        };
+      }
+      return {
+        heading,
+        lines: ["Accounts:", ...lines.map((line) => line.slice(2))],
+      };
+    });
+
+    if (index > 0) {
+      console.log("");
     }
-    console.log(email);
+    console.log(output.heading);
+    for (const line of output.lines) {
+      console.log(`  ${line}`);
+    }
+  }
+}
+
+async function cmdStatusAllProviders(): Promise<void> {
+  for (const [index, provider] of SUPPORTED_PROVIDERS.entries()) {
+    const summary = await withActiveProvider(provider, async () => {
+      return {
+        heading: getProviderLabel(),
+        ...(await getStatusSummaryForActiveProvider()),
+      };
+    });
+
+    if (index > 0) {
+      console.log("");
+    }
+    console.log(summary.heading);
+    if (summary.email === "none") {
+      console.log("  none");
+      continue;
+    }
+    if (summary.alias) {
+      console.log(`  ${summary.email} [${summary.alias}]`);
+      continue;
+    }
+    console.log(`  ${summary.email}`);
   }
 }
 
@@ -536,10 +705,13 @@ Usage:
 
 Commands:
   (no args)                            Interactive provider picker
+  list                                 List managed accounts for all providers
+  status                               Show current account for all providers
   <provider>                           Interactive account picker for provider
   <provider> <alias>                   Switch by alias for provider
   <provider> list                      List all managed accounts
   <provider> add [--alias <name>]      Add current account
+  <provider> login [-- <args...>]      Run provider login and register session
   <provider> remove [<email>]          Remove an account
   <provider> next                      Rotate to next account
   <provider> status [--json]           Show current account
@@ -548,11 +720,17 @@ Commands:
 
 Examples:
   caflip                               Pick provider interactively
+  caflip list                          List managed accounts for Claude and Codex
+  caflip status                        Show current account for Claude and Codex
   caflip claude                        Pick Claude account interactively
   caflip claude work                   Switch Claude account by alias
   caflip claude add --alias personal   Add current Claude account with alias
+  caflip claude login                   Run Claude login and register session
+  caflip claude login -- --email me@example.com --sso
+                                       Pass provider-specific flags after --
   caflip claude status --json          Show Claude status as JSON
   caflip codex list                    List managed Codex accounts
+  caflip codex login -- --device-auth  Run Codex login and register session
   caflip codex add --alias work        Add current Codex account with alias
   caflip codex alias work user@company.com
                                        Set Codex alias for target email`);
@@ -589,11 +767,10 @@ async function main(): Promise<void> {
   };
 
   const isHelpCommand = command === "help" || command === "--help" || command === "-h";
-  if (!parsed.isProviderQualified && command && !isHelpCommand) {
+  const isProviderOptionalReadOnlyCommand = command === "list" || command === "status";
+  if (!parsed.isProviderQualified && command && !isHelpCommand && !isProviderOptionalReadOnlyCommand) {
     if ((RESERVED_COMMANDS as readonly string[]).includes(command)) {
-      console.error("Error: Provider is required for non-interactive commands.");
-      console.error("Try: caflip claude list");
-      process.exit(2);
+      showProviderRequiredError(command);
     } else {
       console.error("Error: Alias requires provider prefix.");
       console.error("Try: caflip claude <alias> or caflip codex <alias>");
@@ -624,9 +801,20 @@ async function main(): Promise<void> {
   }
 
   if (!provider) {
-    console.error("Error: Provider is required for non-interactive commands.");
-    console.error("Try: caflip claude list");
-    process.exit(2);
+    if (command === "list") {
+      await cmdListAllProviders();
+      return;
+    }
+    if (command === "status") {
+      if (args.includes("--json")) {
+        console.error("Error: Provider is required for status --json.");
+        console.error("Try: caflip claude status --json");
+        process.exit(2);
+      }
+      await cmdStatusAllProviders();
+      return;
+    }
+    showProviderRequiredError(command);
   }
   setActiveProvider(provider);
 
@@ -662,13 +850,21 @@ async function main(): Promise<void> {
       break;
     }
 
+    case "login": {
+      validateLoginArgs(args.slice(1));
+      await runWithLock(async () => {
+        await cmdLogin(args.slice(1));
+      });
+      break;
+    }
+
     case "status":
       await cmdStatus({ json: args.includes("--json") });
       break;
 
     case "alias": {
       if (!args[1]) {
-        console.error("Usage: caflip alias <name> [<email>]");
+        console.error(`Usage: caflip ${provider} alias <name> [<email>]`);
         process.exit(1);
       }
       await runWithLock(async () => {

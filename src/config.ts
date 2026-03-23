@@ -39,6 +39,7 @@ export const RESERVED_COMMANDS = [
   "add",
   "remove",
   "next",
+  "login",
   "status",
   "alias",
   "claude",

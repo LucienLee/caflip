@@ -2,6 +2,9 @@
 // ABOUTME: Reads/writes ~/.codex/auth.json and resolves current account identity from id_token.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { runCapturedCommand } from "../login/runner";
+import type { CommandRunner, LoginVerificationResult, ProviderLoginAdapter } from "../login/types";
+import type { AccountProvider } from "./types";
 import { homedir } from "os";
 import { join } from "path";
 import { sanitizeEmailForFilename, validateAccountNumber } from "../validation";
@@ -9,6 +12,15 @@ import { sanitizeEmailForFilename, validateAccountNumber } from "../validation";
 interface CodexAccount {
   email: string;
   accountId?: string;
+}
+
+interface CodexAuthFile {
+  auth_mode?: string;
+  OPENAI_API_KEY?: string | null;
+  tokens?: {
+    id_token?: string;
+    account_id?: string;
+  };
 }
 
 function getCodexAuthPath(): string {
@@ -115,12 +127,7 @@ export function getCodexCurrentAccount(): CodexAccount | null {
   }
 
   try {
-    const authObj = JSON.parse(readFileSync(authPath, "utf-8")) as {
-      tokens?: {
-        id_token?: string;
-        account_id?: string;
-      };
-    };
+    const authObj = JSON.parse(readFileSync(authPath, "utf-8")) as CodexAuthFile;
 
     const idToken = authObj.tokens?.id_token;
     if (!idToken) {
@@ -150,3 +157,97 @@ export function getCodexCurrentAccount(): CodexAccount | null {
     return null;
   }
 }
+
+function readCodexAuthFile(): CodexAuthFile | null {
+  const authPath = getCodexAuthPath();
+  if (!existsSync(authPath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(readFileSync(authPath, "utf-8")) as CodexAuthFile;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyCodexLogin(
+  commandRunner: CommandRunner = runCapturedCommand
+): Promise<LoginVerificationResult> {
+  const result = await commandRunner(["codex", "login", "status"]);
+
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      reason: result.stderr || "codex login status failed",
+    };
+  }
+
+  const authFile = readCodexAuthFile();
+  if (!authFile) {
+    return {
+      ok: false,
+      reason: "codex auth file was missing or unreadable after successful login status",
+    };
+  }
+
+  if (authFile.OPENAI_API_KEY) {
+    return {
+      ok: false,
+      reason: "caflip does not support Codex API key login sessions",
+      details: {
+        authMode: authFile.auth_mode ?? "apikey",
+      },
+    };
+  }
+  if (authFile.auth_mode && authFile.auth_mode !== "chatgpt") {
+    return {
+      ok: false,
+      reason: `caflip does not support Codex ${authFile.auth_mode} login sessions`,
+      details: {
+        authMode: authFile.auth_mode,
+      },
+    };
+  }
+
+  const currentAccount = getCodexCurrentAccount();
+  if (!currentAccount?.email) {
+    return {
+      ok: false,
+      reason: "codex auth file did not resolve a current account email",
+    };
+  }
+
+  return {
+    ok: true,
+    email: currentAccount.email,
+    details: currentAccount.accountId
+      ? { accountId: currentAccount.accountId }
+      : undefined,
+  };
+}
+
+const codexLoginAdapter: ProviderLoginAdapter = {
+  buildCommand: (passthroughArgs) => ["codex", "login", ...passthroughArgs],
+  verifyLogin: verifyCodexLogin,
+};
+
+export const codexProvider: AccountProvider = {
+  name: "codex",
+  login: codexLoginAdapter,
+  usesAccountConfig: false,
+  getCurrentAccount: getCodexCurrentAccount,
+  getCurrentAccountEmail: () => getCodexCurrentAccount()?.email ?? "none",
+  readActiveAuth: readCodexActiveAuth,
+  writeActiveAuth: writeCodexActiveAuth,
+  clearActiveAuth: clearCodexActiveAuth,
+  readActiveConfig: async () => "",
+  writeActiveConfig: async () => {},
+  clearActiveConfig: async () => {},
+  readAccountAuth: readCodexAccountAuthBackup,
+  writeAccountAuth: writeCodexAccountAuthBackup,
+  deleteAccountAuth: deleteCodexAccountAuthBackup,
+  readAccountConfig: () => "",
+  writeAccountConfig: async () => {},
+  deleteAccountConfig: () => {},
+};

@@ -63,6 +63,10 @@ bun run dev -- help
 ## Quick Start
 
 ```bash
+# Show current account / managed accounts across both providers
+caflip status
+caflip list
+
 # Add your first Claude account (must already be logged in)
 caflip claude add --alias personal
 
@@ -83,6 +87,14 @@ caflip claude next
 caflip codex add --alias codex-work
 caflip codex list
 caflip codex next
+
+# Run official provider login through caflip, then register the session
+caflip claude login
+caflip codex login
+
+# Pass provider-specific flags after --
+caflip claude login -- --email lucien@aibor.io --sso
+caflip codex login -- --device-auth
 ```
 
 After switching, restart the target CLI (Claude Code or Codex) to pick up new authentication.
@@ -92,12 +104,15 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 | Command | Description |
 |---|---|
 | `caflip` | Interactive provider picker (Claude/Codex) |
+| `caflip list` | List managed accounts for Claude and Codex |
+| `caflip status` | Show current account for Claude and Codex |
 | `caflip claude [command]` | Run command for Claude provider |
 | `caflip codex [command]` | Run command for Codex provider |
 | `caflip [provider]` | Interactive account picker for that provider |
 | `caflip [provider] <alias>` | Switch by alias for that provider |
 | `caflip [provider] list` | List managed accounts |
 | `caflip [provider] add [--alias name]` | Add current account |
+| `caflip [provider] login [-- <args...>]` | Run provider login and register the resulting session |
 | `caflip [provider] remove [email]` | Remove an account |
 | `caflip [provider] next` | Rotate to next account |
 | `caflip [provider] status` | Show current account |
@@ -118,6 +133,14 @@ caflip codex alias work me@company.com
 ```
 
 `remove` target accepts email only. Omit it to choose from the interactive picker.
+
+`login` can be used without arguments for the default login flow. Pass provider-specific flags after `--`:
+
+```bash
+caflip claude login
+caflip claude login -- --email lucien@aibor.io --sso
+caflip codex login -- --device-auth
+```
 
 ## Shell Prompt Integration
 

@@ -2,8 +2,9 @@
 // ABOUTME: Defines a common contract for Claude and Codex integrations.
 
 import type { ProviderName } from "./types";
-import { claudeProvider, type AccountProvider } from "./claude";
-import { codexProvider } from "./claude";
+import type { AccountProvider } from "./types";
+import { claudeProvider } from "./claude";
+import { codexProvider } from "./codex";
 
 export type { AccountProvider };
 
