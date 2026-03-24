@@ -50,12 +50,43 @@ import { readCliMeta, writeLastProvider } from "./meta";
 import { SUPPORTED_PROVIDERS } from "./providers/types";
 
 const ADD_CURRENT_ACCOUNT_CHOICE = "__add_current_account__";
+const INTERACTIVE_PROVIDER_COMMANDS = ["add", "remove", "login"] as const;
 let activeBackupDir = BACKUP_DIR;
 let activeSequenceFile = SEQUENCE_FILE;
 let activeLockDir = LOCK_DIR;
 let activeConfigsDir = CONFIGS_DIR;
 let activeCredentialsDir = CREDENTIALS_DIR;
 let activeProvider: AccountProvider = getProvider("claude");
+
+type ProviderSelectionDeps = {
+  readCliMeta: typeof readCliMeta;
+  pickProvider: typeof pickProvider;
+  writeLastProvider: typeof writeLastProvider;
+};
+
+type CliContext =
+  | {
+      mode: "interactive-switch";
+      provider: ProviderName | null;
+      args: string[];
+      command: undefined;
+    }
+  | {
+      mode: "all-providers";
+      provider: null;
+      args: string[];
+      command: "list" | "status";
+    }
+  | {
+      mode: "provider-command";
+      provider: ProviderName;
+      args: string[];
+      command: string;
+    };
+
+type CliContextDeps = {
+  resolveProviderForCommand: typeof resolveProviderForCommand;
+};
 
 function setActiveProvider(provider: ProviderName): void {
   activeBackupDir = getBackupDir(provider);
@@ -86,6 +117,94 @@ function showProviderRequiredError(command: string): never {
   console.error(`Error: ${command} requires provider prefix.`);
   console.error(`Try: caflip claude ${command} or caflip codex ${command}`);
   process.exit(2);
+}
+
+export function supportsInteractiveProviderSelection(command?: string): boolean {
+  return (INTERACTIVE_PROVIDER_COMMANDS as readonly string[]).includes(command ?? "");
+}
+
+export async function resolveProviderForCommand(
+  provider: ProviderName | null,
+  command: string | undefined,
+  deps: ProviderSelectionDeps = {
+    readCliMeta,
+    pickProvider,
+    writeLastProvider,
+  }
+): Promise<ProviderName | null> {
+  if (provider || !supportsInteractiveProviderSelection(command)) {
+    return provider;
+  }
+
+  const defaultProvider = deps.readCliMeta().lastProvider;
+  const selectedProvider = await deps.pickProvider(defaultProvider);
+  await deps.writeLastProvider(selectedProvider);
+  return selectedProvider;
+}
+
+export async function resolveCliContext(
+  parsed: ReturnType<typeof parseProviderArgs>,
+  deps: CliContextDeps = { resolveProviderForCommand }
+): Promise<CliContext> {
+  let provider = parsed.provider;
+  const args = parsed.commandArgs;
+  const command = args[0];
+  const isHelpCommand = command === "help" || command === "--help" || command === "-h";
+  const isProviderOptionalReadOnlyCommand = command === "list" || command === "status";
+  const supportsInteractiveProvider = supportsInteractiveProviderSelection(command);
+
+  if (!parsed.isProviderQualified && command && !isHelpCommand && !isProviderOptionalReadOnlyCommand) {
+    const isReservedCommand = (RESERVED_COMMANDS as readonly string[]).includes(command);
+    if (!isReservedCommand) {
+      console.error("Error: Alias requires provider prefix.");
+      console.error("Try: caflip claude <alias> or caflip codex <alias>");
+      process.exit(2);
+    }
+    if (!supportsInteractiveProvider) {
+      showProviderRequiredError(command);
+    }
+  }
+
+  if (!command) {
+    return {
+      mode: "interactive-switch",
+      provider,
+      args,
+      command: undefined,
+    };
+  }
+
+  if (isHelpCommand) {
+    showHelp();
+    process.exit(0);
+  }
+
+  if (!provider) {
+    if (command === "list" || command === "status") {
+      return {
+        mode: "all-providers",
+        provider: null,
+        args,
+        command,
+      };
+    }
+
+    provider = await deps.resolveProviderForCommand(provider, command);
+    if (!provider) {
+      showProviderRequiredError(command);
+    }
+  }
+
+  if (!provider) {
+    throw new Error("Provider resolution failed");
+  }
+
+  return {
+    mode: "provider-command",
+    provider,
+    args,
+    command,
+  };
 }
 
 type RegisterCurrentActiveAccountResult = {
@@ -707,6 +826,9 @@ Commands:
   (no args)                            Interactive provider picker
   list                                 List managed accounts for all providers
   status                               Show current account for all providers
+  add [--alias <name>]                 Pick provider, then add current account
+  login [-- <args...>]                 Pick provider, then run provider login
+  remove [<email>]                     Pick provider, then remove an account
   <provider>                           Interactive account picker for provider
   <provider> <alias>                   Switch by alias for provider
   <provider> list                      List all managed accounts
@@ -722,10 +844,13 @@ Examples:
   caflip                               Pick provider interactively
   caflip list                          List managed accounts for Claude and Codex
   caflip status                        Show current account for Claude and Codex
+  caflip add                           Pick provider, then add current account
+  caflip login                         Pick provider, then run provider login
+  caflip remove                        Pick provider, then remove an account interactively
   caflip claude                        Pick Claude account interactively
   caflip claude work                   Switch Claude account by alias
   caflip claude add --alias personal   Add current Claude account with alias
-  caflip claude login                   Run Claude login and register session
+  caflip claude login                  Run Claude login and register session
   caflip claude login -- --email me@example.com --sso
                                        Pass provider-specific flags after --
   caflip claude status --json          Show Claude status as JSON
@@ -736,88 +861,12 @@ Examples:
                                        Set Codex alias for target email`);
 }
 
-// --- Main ---
-
-async function main(): Promise<void> {
-  const parsed = parseProviderArgs(process.argv.slice(2));
-  const provider = parsed.provider;
-  const args = parsed.commandArgs;
-  const command = args[0];
-  let lockHeld = false;
-
-  const runWithLock = async <T>(fn: () => Promise<T>): Promise<T> => {
-    setupDirectories();
-    acquireLock(activeLockDir);
-    lockHeld = true;
-    try {
-      return await fn();
-    } finally {
-      if (lockHeld) {
-        releaseLock(activeLockDir);
-        lockHeld = false;
-      }
-    }
-  };
-  const runWithProviderLock = async <T>(
-    targetProvider: ProviderName,
-    fn: () => Promise<T>
-  ): Promise<T> => {
-    setActiveProvider(targetProvider);
-    return await runWithLock(fn);
-  };
-
-  const isHelpCommand = command === "help" || command === "--help" || command === "-h";
-  const isProviderOptionalReadOnlyCommand = command === "list" || command === "status";
-  if (!parsed.isProviderQualified && command && !isHelpCommand && !isProviderOptionalReadOnlyCommand) {
-    if ((RESERVED_COMMANDS as readonly string[]).includes(command)) {
-      showProviderRequiredError(command);
-    } else {
-      console.error("Error: Alias requires provider prefix.");
-      console.error("Try: caflip claude <alias> or caflip codex <alias>");
-      process.exit(2);
-    }
-  }
-
-  // No args: interactive provider picker
-  if (!command) {
-    if (!provider) {
-      const defaultProvider = readCliMeta().lastProvider;
-      const selectedProvider = await pickProvider(defaultProvider);
-      await writeLastProvider(selectedProvider);
-      await runWithProviderLock(selectedProvider, async () => {
-        await cmdInteractiveSwitch();
-      });
-      return;
-    }
-    await runWithProviderLock(provider, async () => {
-      await cmdInteractiveSwitch();
-    });
-    return;
-  }
-
-  if (isHelpCommand) {
-    showHelp();
-    return;
-  }
-
-  if (!provider) {
-    if (command === "list") {
-      await cmdListAllProviders();
-      return;
-    }
-    if (command === "status") {
-      if (args.includes("--json")) {
-        console.error("Error: Provider is required for status --json.");
-        console.error("Try: caflip claude status --json");
-        process.exit(2);
-      }
-      await cmdStatusAllProviders();
-      return;
-    }
-    showProviderRequiredError(command);
-  }
-  setActiveProvider(provider);
-
+async function executeProviderCommand(
+  command: string,
+  args: string[],
+  provider: ProviderName,
+  runWithLock: <T>(fn: () => Promise<T>) => Promise<T>
+): Promise<void> {
   switch (command) {
     case "list":
       await cmdList();
@@ -825,7 +874,6 @@ async function main(): Promise<void> {
 
     case "add": {
       await runWithLock(async () => {
-        // Parse --alias flag
         let alias: string | undefined;
         const aliasIdx = args.indexOf("--alias");
         if (aliasIdx !== -1 && args[aliasIdx + 1]) {
@@ -874,7 +922,6 @@ async function main(): Promise<void> {
     }
 
     default: {
-      // Check if it's an alias
       if (existsSync(activeSequenceFile)) {
         const seq = await loadSequence(activeSequenceFile);
         const accountNum = findAccountByAlias(seq, command);
@@ -891,6 +938,71 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   }
+}
+
+// --- Main ---
+
+async function main(): Promise<void> {
+  const context = await resolveCliContext(parseProviderArgs(process.argv.slice(2)));
+  let lockHeld = false;
+
+  const runWithLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    setupDirectories();
+    acquireLock(activeLockDir);
+    lockHeld = true;
+    try {
+      return await fn();
+    } finally {
+      if (lockHeld) {
+        releaseLock(activeLockDir);
+        lockHeld = false;
+      }
+    }
+  };
+  const runWithProviderLock = async <T>(
+    targetProvider: ProviderName,
+    fn: () => Promise<T>
+  ): Promise<T> => {
+    setActiveProvider(targetProvider);
+    return await runWithLock(fn);
+  };
+
+  if (context.mode === "interactive-switch") {
+    if (!context.provider) {
+      const defaultProvider = readCliMeta().lastProvider;
+      const selectedProvider = await pickProvider(defaultProvider);
+      await writeLastProvider(selectedProvider);
+      await runWithProviderLock(selectedProvider, async () => {
+        await cmdInteractiveSwitch();
+      });
+      return;
+    }
+    await runWithProviderLock(context.provider, async () => {
+      await cmdInteractiveSwitch();
+    });
+    return;
+  }
+
+  if (context.mode === "all-providers") {
+    if (context.command === "list") {
+      await cmdListAllProviders();
+      return;
+    }
+    if (context.command === "status") {
+      if (context.args.includes("--json")) {
+        console.error("Error: Provider is required for status --json.");
+        console.error("Try: caflip claude status --json");
+        process.exit(2);
+      }
+      await cmdStatusAllProviders();
+      return;
+    }
+  }
+  const provider = context.provider;
+  const args = context.args;
+  const command = context.command;
+  setActiveProvider(provider);
+  await executeProviderCommand(command, args, provider, runWithLock);
 }
 
 if (import.meta.main) {

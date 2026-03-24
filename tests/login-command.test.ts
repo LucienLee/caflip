@@ -35,6 +35,9 @@ describe("provider login command", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("<provider> login [-- <args...>]");
+    expect(stdout).toContain("login [-- <args...>]                 Pick provider, then run provider login");
+    expect(stdout).toContain("add [--alias <name>]                 Pick provider, then add current account");
+    expect(stdout).toContain("remove [<email>]                     Pick provider, then remove an account");
   });
 
   test("provider-qualified alias usage includes provider prefix", async () => {

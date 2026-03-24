@@ -67,6 +67,11 @@ bun run dev -- help
 caflip status
 caflip list
 
+# Pick provider interactively, then add/remove/login
+caflip add
+caflip remove
+caflip login
+
 # Add your first Claude account (must already be logged in)
 caflip claude add --alias personal
 
@@ -106,6 +111,9 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 | `caflip` | Interactive provider picker (Claude/Codex) |
 | `caflip list` | List managed accounts for Claude and Codex |
 | `caflip status` | Show current account for Claude and Codex |
+| `caflip add [--alias name]` | Pick provider, then add current account |
+| `caflip login [-- <args...>]` | Pick provider, then run provider login and register the resulting session |
+| `caflip remove [email]` | Pick provider, then remove an account |
 | `caflip claude [command]` | Run command for Claude provider |
 | `caflip codex [command]` | Run command for Codex provider |
 | `caflip [provider]` | Interactive account picker for that provider |
@@ -132,11 +140,14 @@ caflip claude alias work hi.lucienlee@gmail.com
 caflip codex alias work me@company.com
 ```
 
-`remove` target accepts email only. Omit it to choose from the interactive picker.
+`add`, `remove`, and `login` can be used without a provider prefix. In that case, caflip asks you to choose Claude or Codex first, then continues the normal command flow.
+
+`remove` target accepts email only. Omit it to choose from the interactive picker after selecting a provider.
 
 `login` can be used without arguments for the default login flow. Pass provider-specific flags after `--`:
 
 ```bash
+caflip login
 caflip claude login
 caflip claude login -- --email lucien@aibor.io --sso
 caflip codex login -- --device-auth
