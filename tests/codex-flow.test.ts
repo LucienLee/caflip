@@ -40,7 +40,7 @@ async function writeCodexAuth(testHome: string, email: string, accountId: string
 }
 
 describe("codex flow", () => {
-  test("status prints current codex account email", async () => {
+  test("status prints current codex account email and managed account count", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "caflip-codex-flow-"));
     await writeCodexAuth(testHome, "codex-a@test.com", "acct-a");
 
@@ -57,7 +57,8 @@ describe("codex flow", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe("codex-a@test.com");
+    expect(stdout).toContain("codex-a@test.com");
+    expect(stdout).toContain("managed accounts: 0");
     rmSync(testHome, { recursive: true, force: true });
   });
 
