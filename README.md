@@ -158,6 +158,9 @@ Codex display labels use provider metadata conservatively:
 - `free` shows `email · free`
 - alias is the primary human-readable name when you need your own team label
 
+Claude display labels keep custom organization names, but the default personal name
+`<email>'s Organization` is simplified to `email · Personal`.
+
 `add`, `remove`, and `login` can be used without a provider prefix. In that case, caflip asks you to choose Claude or Codex first, then continues the normal command flow.
 
 `remove` target accepts email only. Omit it to choose from the interactive picker after selecting a provider.

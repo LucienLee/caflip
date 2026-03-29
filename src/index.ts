@@ -1090,7 +1090,8 @@ Examples:
 
 Alias targets:
   <account> can be a list number, an existing alias, or an email when it matches exactly one managed account.
-  Codex labels show workspace plans as email · plan(orgShortId); free shows email · free.`);
+  Codex labels show workspace plans as email · plan(orgShortId); free shows email · free.
+  Claude simplifies the default personal label to email · Personal.`);
 }
 
 async function executeProviderCommand(
