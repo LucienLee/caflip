@@ -639,25 +639,27 @@ async function cmdStatus(options?: { json?: boolean }): Promise<void> {
 
   if (summary.email === "none") {
     console.log("none");
+  } else if (summary.alias) {
+    console.log(`${summary.email} [${summary.alias}]`);
   } else {
-    if (summary.alias) {
-      console.log(`${summary.email} [${summary.alias}]`);
-      return;
-    }
     console.log(summary.email);
   }
+  console.log(`managed accounts: ${summary.managedCount}`);
 }
 
 async function getStatusSummaryForActiveProvider(): Promise<{
   email: string;
   alias: string | null;
   managed: boolean;
+  managedCount: number;
 }> {
   const email = getCurrentAccount();
   let alias: string | null = null;
   let managed = false;
+  let managedCount = 0;
   if (email !== "none" && existsSync(activeSequenceFile)) {
     const seq = await loadSequence(activeSequenceFile);
+    managedCount = Object.keys(seq.accounts).length;
     for (const account of Object.values(seq.accounts)) {
       if (account.email === email) {
         managed = true;
@@ -665,9 +667,12 @@ async function getStatusSummaryForActiveProvider(): Promise<{
         break;
       }
     }
+  } else if (existsSync(activeSequenceFile)) {
+    const seq = await loadSequence(activeSequenceFile);
+    managedCount = Object.keys(seq.accounts).length;
   }
 
-  return { email, alias, managed };
+  return { email, alias, managed, managedCount };
 }
 
 async function withActiveProvider<T>(
@@ -725,13 +730,12 @@ async function cmdStatusAllProviders(): Promise<void> {
     console.log(summary.heading);
     if (summary.email === "none") {
       console.log("  none");
-      continue;
-    }
-    if (summary.alias) {
+    } else if (summary.alias) {
       console.log(`  ${summary.email} [${summary.alias}]`);
-      continue;
+    } else {
+      console.log(`  ${summary.email}`);
     }
-    console.log(`  ${summary.email}`);
+    console.log(`  managed accounts: ${summary.managedCount}`);
   }
 }
 
@@ -825,7 +829,7 @@ Usage:
 Commands:
   (no args)                            Interactive provider picker
   list                                 List managed accounts for all providers
-  status                               Show current account for all providers
+  status                               Show current active account for all providers
   add [--alias <name>]                 Pick provider, then add current account
   login [-- <args...>]                 Pick provider, then run provider login
   remove [<email>]                     Pick provider, then remove an account
@@ -836,14 +840,14 @@ Commands:
   <provider> login [-- <args...>]      Run provider login and register session
   <provider> remove [<email>]          Remove an account
   <provider> next                      Rotate to next account
-  <provider> status [--json]           Show current account
+  <provider> status [--json]           Show current active account
   <provider> alias <name> [<email>]    Set alias for current or target account
   help                                 Show this help
 
 Examples:
   caflip                               Pick provider interactively
   caflip list                          List managed accounts for Claude and Codex
-  caflip status                        Show current account for Claude and Codex
+  caflip status                        Show current active account for Claude and Codex
   caflip add                           Pick provider, then add current account
   caflip login                         Pick provider, then run provider login
   caflip remove                        Pick provider, then remove an account interactively

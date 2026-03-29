@@ -63,7 +63,7 @@ bun run dev -- help
 ## Quick Start
 
 ```bash
-# Show current account / managed accounts across both providers
+# Show current active account / all managed accounts across both providers
 caflip status
 caflip list
 
@@ -110,7 +110,7 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 |---|---|
 | `caflip` | Interactive provider picker (Claude/Codex) |
 | `caflip list` | List managed accounts for Claude and Codex |
-| `caflip status` | Show current account for Claude and Codex |
+| `caflip status` | Show current active account for Claude and Codex |
 | `caflip add [--alias name]` | Pick provider, then add current account |
 | `caflip login [-- <args...>]` | Pick provider, then run provider login and register the resulting session |
 | `caflip remove [email]` | Pick provider, then remove an account |
@@ -123,7 +123,7 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 | `caflip [provider] login [-- <args...>]` | Run provider login and register the resulting session |
 | `caflip [provider] remove [email]` | Remove an account |
 | `caflip [provider] next` | Rotate to next account |
-| `caflip [provider] status` | Show current account |
+| `caflip [provider] status` | Show current active account |
 | `caflip [provider] alias <name> [email]` | Set alias for current or target account |
 | `caflip help` | Show help |
 
@@ -152,6 +152,10 @@ caflip claude login
 caflip claude login -- --email lucien@aibor.io --sso
 caflip codex login -- --device-auth
 ```
+
+`status` shows the currently active account for the selected provider. It does not list every saved account.
+
+Use `list` when you want to inspect all managed accounts for a provider.
 
 ## Shell Prompt Integration
 

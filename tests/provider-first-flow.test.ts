@@ -301,8 +301,10 @@ describe("provider-first flow", () => {
     expect(stderr).toBe("");
     expect(stdout).toContain("Claude Code");
     expect(stdout).toContain("claude-active@test.com [work]");
+    expect(stdout).toContain("  managed accounts: 1");
     expect(stdout).toContain("Codex");
     expect(stdout).toContain("  none");
+    expect(stdout).toContain("  managed accounts: 0");
     rmSync(testHome, { recursive: true, force: true });
   });
 
