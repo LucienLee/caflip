@@ -12,6 +12,11 @@ import { sanitizeEmailForFilename, validateAccountNumber } from "../validation";
 interface CodexAccount {
   email: string;
   accountId?: string;
+  organizationId?: string;
+  organizationName?: string;
+  planType?: string;
+  role?: string;
+  uniqueKey?: string;
 }
 
 interface CodexAuthFile {
@@ -22,6 +27,18 @@ interface CodexAuthFile {
     account_id?: string;
   };
 }
+
+interface CodexOrganization {
+  id?: string;
+  title?: string;
+  role?: string;
+  is_default?: boolean;
+}
+
+type CodexAccountResolution = {
+  account: CodexAccount | null;
+  ambiguousOrganization: boolean;
+};
 
 function getCodexAuthPath(): string {
   return join(process.env.HOME ?? homedir(), ".codex", "auth.json");
@@ -128,10 +145,10 @@ export async function deleteCodexAccountAuthBackup(
   rmSync(backupPath, { force: true });
 }
 
-export function getCodexCurrentAccount(): CodexAccount | null {
+function resolveCodexCurrentAccount(): CodexAccountResolution {
   const authPath = getCodexAuthPath();
   if (!existsSync(authPath)) {
-    return null;
+    return { account: null, ambiguousOrganization: false };
   }
 
   try {
@@ -139,31 +156,58 @@ export function getCodexCurrentAccount(): CodexAccount | null {
 
     const idToken = authObj.tokens?.id_token;
     if (!idToken) {
-      return null;
+      return { account: null, ambiguousOrganization: false };
     }
 
     const payload = decodeJwtPayload(idToken);
     if (!payload) {
-      return null;
+      return { account: null, ambiguousOrganization: false };
     }
 
     const email = typeof payload.email === "string" ? payload.email : null;
     if (!email) {
-      return null;
+      return { account: null, ambiguousOrganization: false };
     }
 
     const authPayload = payload["https://api.openai.com/auth"] as
-      | { chatgpt_account_id?: string }
+      | {
+          chatgpt_account_id?: string;
+          chatgpt_plan_type?: string;
+          organizations?: CodexOrganization[];
+        }
       | undefined;
     const accountId = authPayload?.chatgpt_account_id ?? authObj.tokens?.account_id;
+    const organizations = Array.isArray(authPayload?.organizations)
+      ? authPayload.organizations
+      : [];
+    const organization = organizations.find((candidate) => candidate.is_default === true)
+      ?? (organizations.length === 1 ? organizations[0] : undefined);
+    const ambiguousOrganization = organizations.length > 1 && !organization;
 
     return {
-      email,
-      accountId,
+      ambiguousOrganization,
+      account: {
+        email,
+        accountId,
+        organizationId: organization?.id,
+        organizationName: organization?.title,
+        planType: authPayload?.chatgpt_plan_type,
+        role: organization?.role,
+        uniqueKey: accountId && organization?.id ? `codex:${accountId}:${organization.id}` : undefined,
+        identityStatus: ambiguousOrganization
+          ? "ambiguous"
+          : accountId && organization?.id
+            ? "resolved"
+            : "partial",
+      },
     };
   } catch {
-    return null;
+    return { account: null, ambiguousOrganization: false };
   }
+}
+
+export function getCodexCurrentAccount(): CodexAccount | null {
+  return resolveCodexCurrentAccount().account;
 }
 
 function readCodexAuthFile(): CodexAuthFile | null {
@@ -218,20 +262,29 @@ async function verifyCodexLogin(
     };
   }
 
-  const currentAccount = getCodexCurrentAccount();
+  const { account: currentAccount, ambiguousOrganization } = resolveCodexCurrentAccount();
   if (!currentAccount?.email) {
     return {
       ok: false,
       reason: "codex auth file did not resolve a current account email",
     };
   }
+  if (ambiguousOrganization) {
+    return {
+      ok: false,
+      reason: "codex login resolved an ambiguous workspace context: multiple organizations without a default workspace",
+    };
+  }
 
   return {
     ok: true,
     email: currentAccount.email,
-    details: currentAccount.accountId
-      ? { accountId: currentAccount.accountId }
-      : undefined,
+    details: {
+      accountId: currentAccount.accountId,
+      organizationId: currentAccount.organizationId,
+      organizationName: currentAccount.organizationName,
+      planType: currentAccount.planType,
+    },
   };
 }
 

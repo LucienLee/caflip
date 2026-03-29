@@ -48,8 +48,32 @@ function getClaudeCurrentAccount(): { email: string; accountId?: string } | null
   const accountId = typeof content?.oauthAccount?.accountUuid === "string"
     ? content.oauthAccount.accountUuid
     : undefined;
+  const organizationId = typeof content?.oauthAccount?.organizationUuid === "string"
+    ? content.oauthAccount.organizationUuid
+    : undefined;
+  const organizationName = typeof content?.oauthAccount?.organizationName === "string"
+    ? content.oauthAccount.organizationName
+    : undefined;
+  const workspaceRole = typeof content?.oauthAccount?.workspaceRole === "string"
+    ? content.oauthAccount.workspaceRole
+    : undefined;
+  const organizationRole = typeof content?.oauthAccount?.organizationRole === "string"
+    ? content.oauthAccount.organizationRole
+    : undefined;
+  const accountName = typeof content?.oauthAccount?.displayName === "string"
+    ? content.oauthAccount.displayName
+    : undefined;
 
-  return { email, accountId };
+  return {
+    email,
+    accountId,
+    organizationId,
+    organizationName,
+    role: workspaceRole ?? organizationRole,
+    accountName,
+    uniqueKey: accountId && organizationId ? `claude:${accountId}:${organizationId}` : undefined,
+    identityStatus: accountId && organizationId ? "resolved" : "partial",
+  };
 }
 
 function getClaudeCurrentAccountEmail(): string {

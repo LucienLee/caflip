@@ -16,7 +16,21 @@ export function makeJwt(payload: Record<string, unknown>): string {
   return `${toBase64Url({ alg: "none", typ: "JWT" })}.${toBase64Url(payload)}.sig`;
 }
 
-export function writeFakeCodexBinary(binDir: string, email: string, accountId: string): void {
+export function writeFakeCodexBinary(
+  binDir: string,
+  email: string,
+  accountId: string,
+  options?: {
+    organizationId?: string;
+    organizationName?: string;
+    planType?: string;
+    role?: string;
+  }
+): void {
+  const organizationId = options?.organizationId ?? "org-default";
+  const organizationName = options?.organizationName ?? "Default Org";
+  const planType = options?.planType ?? "team";
+  const role = options?.role ?? "owner";
   const codexScript = `#!/bin/sh
 set -eu
 if [ "$1" = "login" ]; then
@@ -32,7 +46,18 @@ if [ "$1" = "login" ]; then
   "tokens": {
     "id_token": "${makeJwt({
       email,
-      "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+      "https://api.openai.com/auth": {
+        chatgpt_account_id: accountId,
+        chatgpt_plan_type: planType,
+        organizations: [
+          {
+            id: organizationId,
+            title: organizationName,
+            role,
+            is_default: true,
+          },
+        ],
+      },
     })}",
     "account_id": "${accountId}"
   }
@@ -53,9 +78,22 @@ export function writeFakeClaudeBinary(
   binDir: string,
   statusEmail: string,
   accountId: string,
-  options?: { localEmail?: string; invalidStatusJson?: boolean }
+  options?: {
+    localEmail?: string;
+    invalidStatusJson?: boolean;
+    orgId?: string;
+    orgName?: string;
+    displayName?: string;
+    organizationRole?: string;
+    workspaceRole?: string | null;
+  }
 ): void {
   const localEmail = options?.localEmail ?? statusEmail;
+  const orgId = options?.orgId ?? "org-test";
+  const orgName = options?.orgName ?? "Test Org";
+  const displayName = options?.displayName ?? "Test User";
+  const organizationRole = options?.organizationRole ?? "user";
+  const workspaceRole = options?.workspaceRole ?? null;
   const statusPayload = options?.invalidStatusJson
     ? "not-json"
     : `{
@@ -63,8 +101,8 @@ export function writeFakeClaudeBinary(
   "authMethod": "claude.ai",
   "apiProvider": "firstParty",
   "email": "${statusEmail}",
-  "orgId": "org-test",
-  "orgName": "Test Org",
+  "orgId": "${orgId}",
+  "orgName": "${orgName}",
   "subscriptionType": "team"
 }`;
 
@@ -86,7 +124,12 @@ EOF
 {
   "oauthAccount": {
     "emailAddress": "${localEmail}",
-    "accountUuid": "${accountId}"
+    "accountUuid": "${accountId}",
+    "organizationUuid": "${orgId}",
+    "organizationName": "${orgName}",
+    "organizationRole": "${organizationRole}",
+    "workspaceRole": ${workspaceRole === null ? "null" : `"${workspaceRole}"`},
+    "displayName": "${displayName}"
   }
 }
 EOF

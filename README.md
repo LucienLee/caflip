@@ -124,7 +124,7 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 | `caflip [provider] remove [email]` | Remove an account |
 | `caflip [provider] next` | Rotate to next account |
 | `caflip [provider] status` | Show current active account |
-| `caflip [provider] alias <name> [email]` | Set alias for current or target account |
+| `caflip [provider] alias <name> [account]` | Set alias for current or target account |
 | `caflip help` | Show help |
 
 ### Alias Usage
@@ -133,12 +133,30 @@ After switching, restart the target CLI (Claude Code or Codex) to pick up new au
 # Set alias for current active account
 caflip claude alias work
 
-# Set alias for a specific managed account
-caflip claude alias work hi.lucienlee@gmail.com
+# Set alias by list number
+caflip codex list
+# 1: me@example.com · team(org-ab12Cd)
+# 2: me@example.com · team(org-xy98Qw)
+caflip codex alias aibor 2
 
-# Codex alias
+# Reuse an existing alias as the target
+caflip claude alias primary work
+
+# Email works only when it matches exactly one managed account
 caflip codex alias work me@company.com
 ```
+
+`<account>` accepts:
+- the account number shown in `caflip [provider] list`
+- an existing alias
+- an email, only when that email matches exactly one managed account
+
+If the same email exists in multiple workspaces or organizations, use the list number or an existing alias instead.
+
+Codex display labels use provider metadata conservatively:
+- workspace plans such as `team` or `business` show `email · plan(orgShortId)`
+- `free` shows `email · free`
+- alias is the primary human-readable name when you need your own team label
 
 `add`, `remove`, and `login` can be used without a provider prefix. In that case, caflip asks you to choose Claude or Codex first, then continues the normal command flow.
 

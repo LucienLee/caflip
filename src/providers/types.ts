@@ -5,11 +5,23 @@ import type { ProviderLoginAdapter } from "../login/types";
 
 export type ProviderName = "claude" | "codex";
 
+export interface ProviderCurrentAccount {
+  email: string;
+  accountId?: string;
+  organizationId?: string;
+  organizationName?: string;
+  planType?: string;
+  role?: string;
+  accountName?: string;
+  uniqueKey?: string;
+  identityStatus?: "resolved" | "partial" | "ambiguous";
+}
+
 export interface AccountProvider {
   readonly name: ProviderName;
   readonly login: ProviderLoginAdapter;
   readonly usesAccountConfig: boolean;
-  getCurrentAccount(): { email: string; accountId?: string } | null;
+  getCurrentAccount(): ProviderCurrentAccount | null;
   getCurrentAccountEmail(): string;
   readActiveAuth(): Promise<string>;
   writeActiveAuth(raw: string): Promise<void>;

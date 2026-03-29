@@ -77,7 +77,18 @@ describe("codex provider current account", () => {
     process.env.HOME = testHome;
     const jwt = makeJwt({
       email: "codex@test.com",
-      "https://api.openai.com/auth": { chatgpt_account_id: "acct-123" },
+      "https://api.openai.com/auth": {
+        chatgpt_account_id: "acct-123",
+        chatgpt_plan_type: "team",
+        organizations: [
+          {
+            id: "org-123",
+            title: "Primary Org",
+            role: "owner",
+            is_default: true,
+          },
+        ],
+      },
     });
     await writeCodexActiveAuth(
       JSON.stringify({
@@ -89,6 +100,12 @@ describe("codex provider current account", () => {
     expect(getCodexCurrentAccount()).toEqual({
       email: "codex@test.com",
       accountId: "acct-123",
+      organizationId: "org-123",
+      organizationName: "Primary Org",
+      planType: "team",
+      role: "owner",
+      uniqueKey: "codex:acct-123:org-123",
+      identityStatus: "resolved",
     });
   });
 

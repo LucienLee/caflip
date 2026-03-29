@@ -58,6 +58,108 @@ describe("provider-first flow", () => {
     rmSync(testHome, { recursive: true, force: true });
   });
 
+  test("list shows workspace labels for same-email managed accounts", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-provider-first-same-email-"));
+    const backupRoot = join(testHome, ".caflip-backup");
+    mkdirSync(join(backupRoot, "codex"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(backupRoot, "codex", "sequence.json"),
+      JSON.stringify(
+        {
+          activeAccountNumber: 2,
+          lastUpdated: "2026-03-24T00:00:00.000Z",
+          sequence: [1, 2],
+          accounts: {
+            "1": {
+              email: "same@test.com",
+              uuid: "codex:acct-1:org-a",
+              added: "2026-03-24T00:00:00.000Z",
+              identity: {
+                provider: "codex",
+                accountId: "acct-1",
+                organizationId: "org-a",
+                uniqueKey: "codex:acct-1:org-a",
+              },
+              display: {
+                email: "same@test.com",
+                accountName: null,
+                organizationName: "Workspace A",
+                planType: "team",
+                role: "owner",
+                label: "same@test.com · Workspace A",
+              },
+            },
+            "2": {
+              email: "same@test.com",
+              uuid: "codex:acct-1:org-b",
+              added: "2026-03-24T00:00:00.000Z",
+              alias: "work",
+              identity: {
+                provider: "codex",
+                accountId: "acct-1",
+                organizationId: "org-b",
+                uniqueKey: "codex:acct-1:org-b",
+              },
+              display: {
+                email: "same@test.com",
+                accountName: null,
+                organizationName: "Workspace B",
+                planType: "team",
+                role: "owner",
+                label: "same@test.com · Workspace B",
+              },
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+    mkdirSync(join(testHome, ".codex"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(testHome, ".codex", "auth.json"),
+      JSON.stringify(
+        {
+          auth_mode: "chatgpt",
+          tokens: {
+            id_token: makeJwt({
+              email: "same@test.com",
+              "https://api.openai.com/auth": {
+                chatgpt_account_id: "acct-1",
+                chatgpt_plan_type: "team",
+                organizations: [
+                  { id: "org-b", title: "Workspace B", role: "owner", is_default: true },
+                ],
+              },
+            }),
+            account_id: "acct-1",
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "codex", "list"], {
+      cwd: process.cwd(),
+      env: { ...process.env, HOME: testHome },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("1: same@test.com · team(org-a)");
+    expect(stdout).toContain("2: same@test.com · team(org-b) [work] (active)");
+    rmSync(testHome, { recursive: true, force: true });
+  });
+
   test("alias without provider exits 2 with guidance", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "caflip-provider-first-"));
     const proc = Bun.spawn(["bun", "run", "src/index.ts", "work"], {
@@ -132,6 +234,54 @@ describe("provider-first flow", () => {
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
     expect(stdout).toContain("Added Account-1: interactive-add@test.com");
+    rmSync(testHome, { recursive: true, force: true });
+  });
+
+  test("codex add rejects ambiguous multi-organization sessions without a default workspace", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-provider-first-ambiguous-add-"));
+    mkdirSync(join(testHome, ".codex"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(testHome, ".codex", "auth.json"),
+      JSON.stringify(
+        {
+          auth_mode: "chatgpt",
+          tokens: {
+            id_token: makeJwt({
+              email: "ambiguous-add@test.com",
+              "https://api.openai.com/auth": {
+                chatgpt_account_id: "acct-ambiguous",
+                chatgpt_plan_type: "team",
+                organizations: [
+                  { id: "org-a", title: "Workspace A", role: "owner", is_default: false },
+                  { id: "org-b", title: "Workspace B", role: "member", is_default: false },
+                ],
+              },
+            }),
+            account_id: "acct-ambiguous",
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "codex", "add"], {
+      cwd: process.cwd(),
+      env: { ...process.env, HOME: testHome },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("ambiguous workspace");
+
     rmSync(testHome, { recursive: true, force: true });
   });
 

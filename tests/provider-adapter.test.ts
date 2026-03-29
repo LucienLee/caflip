@@ -63,6 +63,11 @@ describe("provider adapter registry", () => {
             oauthAccount: {
               emailAddress: "claude@test.com",
               accountUuid: "uuid-123",
+              organizationUuid: "org-123",
+              organizationName: "Test Org",
+              organizationRole: "user",
+              workspaceRole: "member",
+              displayName: "Claude User",
             },
           },
           null,
@@ -73,6 +78,12 @@ describe("provider adapter registry", () => {
       expect(providers.claude.getCurrentAccount()).toEqual({
         email: "claude@test.com",
         accountId: "uuid-123",
+        organizationId: "org-123",
+        organizationName: "Test Org",
+        role: "member",
+        accountName: "Claude User",
+        uniqueKey: "claude:uuid-123:org-123",
+        identityStatus: "resolved",
       });
     } finally {
       if (originalHome === undefined) {
@@ -96,6 +107,9 @@ describe("provider adapter registry", () => {
         loggedIn: true,
         email: "lucien@aibor.io",
         authMethod: "claude.ai",
+        orgId: "org-123",
+        orgName: "Aibor",
+        subscriptionType: "team",
       }),
       stderr: "",
       signal: null,
@@ -106,9 +120,9 @@ describe("provider adapter registry", () => {
       email: "lucien@aibor.io",
       details: {
         authMethod: "claude.ai",
-        orgId: undefined,
-        orgName: undefined,
-        subscriptionType: undefined,
+        orgId: "org-123",
+        orgName: "Aibor",
+        subscriptionType: "team",
       },
     });
   });
@@ -158,6 +172,15 @@ describe("provider adapter registry", () => {
         email: "codex@test.com",
         "https://api.openai.com/auth": {
           chatgpt_account_id: "acct_123",
+          chatgpt_plan_type: "team",
+          organizations: [
+            {
+              id: "org-default",
+              title: "Personal",
+              role: "owner",
+              is_default: true,
+            },
+          ],
         },
       });
 
@@ -187,6 +210,9 @@ describe("provider adapter registry", () => {
         email: "codex@test.com",
         details: {
           accountId: "acct_123",
+          organizationId: "org-default",
+          organizationName: "Personal",
+          planType: "team",
         },
       });
     } finally {
@@ -232,6 +258,198 @@ describe("provider adapter registry", () => {
         throw new Error("Expected Codex API key verification to fail");
       }
       expect(result.reason).toContain("API key");
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      rmSync(testHome, { recursive: true, force: true });
+    }
+  });
+
+  test("Codex login verification rejects ambiguous multi-organization auth without a default workspace", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-codex-ambiguous-login-"));
+    const originalHome = process.env.HOME;
+
+    try {
+      process.env.HOME = testHome;
+      const codexDir = join(testHome, ".codex");
+      mkdirSync(codexDir, { recursive: true, mode: 0o700 });
+
+      const idToken = makeJwt({
+        email: "codex@test.com",
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "acct_123",
+          chatgpt_plan_type: "team",
+          organizations: [
+            {
+              id: "org-a",
+              title: "Workspace A",
+              role: "owner",
+              is_default: false,
+            },
+            {
+              id: "org-b",
+              title: "Workspace B",
+              role: "member",
+              is_default: false,
+            },
+          ],
+        },
+      });
+
+      writeFileSync(
+        join(codexDir, "auth.json"),
+        JSON.stringify(
+          {
+            tokens: {
+              id_token: idToken,
+              account_id: "acct_123",
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = await providers.codex.login.verifyLogin(async () => ({
+        exitCode: 0,
+        stdout: "Logged in using ChatGPT",
+        stderr: "",
+        signal: null,
+      }));
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error("Expected ambiguous Codex verification to fail");
+      }
+      expect(result.reason).toContain("workspace");
+      expect(result.reason).toContain("ambiguous");
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      rmSync(testHome, { recursive: true, force: true });
+    }
+  });
+
+  test("Codex current account exposes organization metadata from id_token", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-codex-current-account-"));
+    const originalHome = process.env.HOME;
+
+    try {
+      process.env.HOME = testHome;
+      const codexDir = join(testHome, ".codex");
+      mkdirSync(codexDir, { recursive: true, mode: 0o700 });
+
+      const idToken = makeJwt({
+        email: "codex@test.com",
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "acct_123",
+          chatgpt_plan_type: "team",
+          organizations: [
+            {
+              id: "org-a",
+              title: "Other Org",
+              role: "member",
+              is_default: false,
+            },
+            {
+              id: "org-b",
+              title: "Default Org",
+              role: "owner",
+              is_default: true,
+            },
+          ],
+        },
+      });
+
+      writeFileSync(
+        join(codexDir, "auth.json"),
+        JSON.stringify({
+          tokens: {
+            id_token: idToken,
+            account_id: "acct_123",
+          },
+        })
+      );
+
+      expect(providers.codex.getCurrentAccount()).toEqual({
+        email: "codex@test.com",
+        accountId: "acct_123",
+        organizationId: "org-b",
+        organizationName: "Default Org",
+        planType: "team",
+        role: "owner",
+        uniqueKey: "codex:acct_123:org-b",
+        identityStatus: "resolved",
+      });
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      rmSync(testHome, { recursive: true, force: true });
+    }
+  });
+
+  test("Codex login verification rejects ambiguous multi-organization sessions without a default org", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-codex-ambiguous-login-"));
+    const originalHome = process.env.HOME;
+
+    try {
+      process.env.HOME = testHome;
+      const codexDir = join(testHome, ".codex");
+      mkdirSync(codexDir, { recursive: true, mode: 0o700 });
+
+      const idToken = makeJwt({
+        email: "codex@test.com",
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "acct_123",
+          chatgpt_plan_type: "team",
+          organizations: [
+            {
+              id: "org-a",
+              title: "Org A",
+              role: "member",
+              is_default: false,
+            },
+            {
+              id: "org-b",
+              title: "Org B",
+              role: "owner",
+              is_default: false,
+            },
+          ],
+        },
+      });
+
+      writeFileSync(
+        join(codexDir, "auth.json"),
+        JSON.stringify({
+          tokens: {
+            id_token: idToken,
+            account_id: "acct_123",
+          },
+        })
+      );
+
+      const result = await providers.codex.login.verifyLogin(async () => ({
+        exitCode: 0,
+        stdout: "Logged in using ChatGPT",
+        stderr: "",
+        signal: null,
+      }));
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error("Expected Codex ambiguous organization verification to fail");
+      }
+      expect(result.reason).toContain("multiple organizations");
     } finally {
       if (originalHome === undefined) {
         delete process.env.HOME;

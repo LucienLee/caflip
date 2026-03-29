@@ -55,7 +55,7 @@ describe("provider login command", () => {
     ]);
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("Usage: caflip claude alias <name> [<email>]");
+    expect(stderr).toContain("Usage: caflip claude alias <name> [<account>]");
 
     rmSync(testHome, { recursive: true, force: true });
   });

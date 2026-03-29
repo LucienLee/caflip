@@ -23,13 +23,15 @@ import {
   removeAccountFromSequence,
   getNextInSequence,
   resolveAccountIdentifier,
-  resolveManagedAccountNumberForEmail,
-  resolveAliasTargetAccount,
+  resolveAccountTarget,
   getDisplayAccountLabel,
   getPostRemovalAction,
   accountExists,
+  resolveManagedAccount,
+  resolveManagedAccountNumber,
   setAlias,
   findAccountByAlias,
+  getManagedAccountLabel,
   type SequenceData,
 } from "./accounts";
 import { writeJsonAtomic, acquireLock, releaseLock } from "./files";
@@ -46,6 +48,7 @@ import {
 import { runLoginCommand } from "./login/runner";
 import { parseProviderArgs, type ProviderName } from "./providers/types";
 import { getProvider, type AccountProvider } from "./providers";
+import type { ProviderCurrentAccount } from "./providers/types";
 import { readCliMeta, writeLastProvider } from "./meta";
 import { SUPPORTED_PROVIDERS } from "./providers/types";
 
@@ -104,13 +107,163 @@ function setupDirectories(): void {
   }
 }
 
-// Read current account email from Claude config.
+function getCurrentAccountIdentity() {
+  return activeProvider.getCurrentAccount();
+}
+
+// Read current account email from provider identity.
 function getCurrentAccount(): string {
-  return activeProvider.getCurrentAccountEmail();
+  return getCurrentAccountIdentity()?.email ?? "none";
 }
 
 function getProviderLabel(): string {
   return activeProvider.name === "codex" ? "Codex" : "Claude Code";
+}
+
+function hasMultipleProviderEmailMatches(
+  seq: SequenceData,
+  email: string,
+  provider: ProviderName
+): boolean {
+  return Object.values(seq.accounts).filter((account) => {
+    if (account.email !== email) {
+      return false;
+    }
+    return !account.identity || account.identity.provider === provider;
+  }).length > 1;
+}
+
+function resolveCurrentManagedAccountForSwitch(
+  seq: SequenceData,
+  currentIdentity: ProviderCurrentAccount | null,
+  currentEmail: string
+): string | null {
+  if (currentIdentity) {
+    const resolved = resolveManagedAccount(seq, currentIdentity);
+    if (resolved) {
+      return resolved;
+    }
+    const providerEmailMatchCount = Object.values(seq.accounts).filter((account) => {
+      if (account.email !== currentIdentity.email) {
+        return false;
+      }
+      return !account.identity || account.identity.provider === activeProvider.name;
+    }).length;
+    if (currentIdentity.identityStatus === "ambiguous") {
+      throw new Error(
+        `Cannot determine which managed account is currently active for ${currentIdentity.email}.`
+      );
+    }
+    if (
+      currentIdentity.email !== "none"
+      && providerEmailMatchCount > 0
+    ) {
+      throw new Error(
+        `Cannot determine which managed account is currently active for ${currentIdentity.email}.`
+      );
+    }
+    return null;
+  }
+
+  if (currentEmail === "none") {
+    return null;
+  }
+
+  return resolveAccountIdentifier(seq, currentEmail);
+}
+
+function getAccountDisplayLabel(account: {
+  email: string;
+  display?: {
+    email: string;
+    accountName?: string | null;
+    organizationName?: string | null;
+    planType?: string | null;
+    role?: string | null;
+    label: string;
+  };
+  identity?: {
+    provider: "claude" | "codex";
+    accountId: string | null;
+    organizationId: string | null;
+    uniqueKey: string;
+  };
+}): string {
+  return getManagedAccountLabel(account);
+}
+
+function getCurrentAccountDisplayLabel(currentAccount: ProviderCurrentAccount | null): string {
+  if (!currentAccount) {
+    return "none";
+  }
+
+  if (activeProvider.name === "codex") {
+    if (currentAccount.planType === "free") {
+      return `${currentAccount.email} · free`;
+    }
+    const orgShortId = currentAccount.organizationId?.slice(0, 10) ?? null;
+    if (currentAccount.planType && orgShortId) {
+      return `${currentAccount.email} · ${currentAccount.planType}(${orgShortId})`;
+    }
+    if (orgShortId) {
+      return `${currentAccount.email} · ${orgShortId}`;
+    }
+    if (currentAccount.planType) {
+      return `${currentAccount.email} · ${currentAccount.planType}`;
+    }
+  }
+
+  if (currentAccount.organizationName) {
+    return `${currentAccount.email} · ${currentAccount.organizationName}`;
+  }
+
+  return currentAccount.email;
+}
+
+function buildManagedAccountDetails(currentAccount: ProviderCurrentAccount | null) {
+  if (!currentAccount) {
+    return {
+      email: "none",
+      uuid: "",
+      display: {
+        email: "none",
+        accountName: null,
+        organizationName: null,
+        planType: null,
+        role: null,
+        label: "none",
+      },
+      identity: undefined,
+      providerMetadata: undefined,
+    };
+  }
+
+  return {
+    email: currentAccount.email,
+    uuid: currentAccount.accountId ?? currentAccount.uniqueKey ?? "",
+    display: {
+      email: currentAccount.email,
+      accountName: currentAccount.accountName ?? null,
+      organizationName: currentAccount.organizationName ?? null,
+      planType: currentAccount.planType ?? null,
+      role: currentAccount.role ?? null,
+      label: getCurrentAccountDisplayLabel(currentAccount),
+    },
+    identity: currentAccount.uniqueKey
+      ? {
+          provider: activeProvider.name,
+          accountId: currentAccount.accountId ?? null,
+          organizationId: currentAccount.organizationId ?? null,
+          uniqueKey: currentAccount.uniqueKey,
+        }
+      : undefined,
+    providerMetadata: {
+      organizationName: currentAccount.organizationName ?? null,
+      planType: currentAccount.planType ?? null,
+      role: currentAccount.role ?? null,
+      accountName: currentAccount.accountName ?? null,
+    },
+  };
 }
 
 function showProviderRequiredError(command: string): never {
@@ -214,8 +367,7 @@ type RegisterCurrentActiveAccountResult = {
 };
 
 async function syncSequenceActiveAccount(seq: SequenceData): Promise<SequenceData> {
-  const currentEmail = getCurrentAccount();
-  const resolvedActive = resolveManagedAccountNumberForEmail(seq, currentEmail);
+  const resolvedActive = resolveManagedAccountNumber(seq, getCurrentAccountIdentity());
   if (seq.activeAccountNumber !== resolvedActive) {
     seq.activeAccountNumber = resolvedActive;
     seq.lastUpdated = new Date().toISOString();
@@ -243,12 +395,19 @@ async function registerCurrentActiveAccount(options?: {
       `Active ${getProviderLabel()} account changed during login verification: expected ${options.expectedEmail}, got ${currentEmail}`
     );
   }
+  if (currentAccount?.identityStatus === "ambiguous") {
+    throw new Error(
+      `${getProviderLabel()} current account is in an ambiguous workspace context. Please pick a single workspace first, then retry.`
+    );
+  }
 
   setupDirectories();
   await initSequenceFile(activeSequenceFile);
 
   const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
+  const currentAccountNum = resolveManagedAccount(seq, currentAccount);
+  const currentDetails = buildManagedAccountDetails(currentAccount);
 
   if (options?.alias) {
     const result = validateAlias(options.alias);
@@ -256,13 +415,12 @@ async function registerCurrentActiveAccount(options?: {
       throw new Error(result.reason);
     }
     const existingAliasTarget = findAccountByAlias(seq, options.alias);
-    const currentAccountNum = resolveAccountIdentifier(seq, currentEmail);
     if (existingAliasTarget && existingAliasTarget !== currentAccountNum) {
       throw new Error(`Alias "${options.alias}" is already in use`);
     }
   }
 
-  const existingAccountNum = resolveAccountIdentifier(seq, currentEmail);
+  const existingAccountNum = currentAccountNum;
   if (existingAccountNum) {
     if (!options?.updateIfExists) {
       console.log(`Account ${currentEmail} is already managed.`);
@@ -294,7 +452,11 @@ async function registerCurrentActiveAccount(options?: {
         ...seq.accounts,
         [existingAccountNum]: {
           ...seq.accounts[existingAccountNum],
+          email: currentEmail,
           uuid,
+          identity: currentDetails.identity ?? seq.accounts[existingAccountNum].identity,
+          display: currentDetails.display,
+          providerMetadata: currentDetails.providerMetadata ?? seq.accounts[existingAccountNum].providerMetadata,
           ...(options?.alias ? { alias: options.alias } : {}),
         },
       },
@@ -327,6 +489,9 @@ async function registerCurrentActiveAccount(options?: {
     email: currentEmail,
     uuid,
     alias: options?.alias,
+    identity: currentDetails.identity,
+    display: currentDetails.display,
+    providerMetadata: currentDetails.providerMetadata,
   });
 
   const accountNum = String(updated.activeAccountNumber);
@@ -368,21 +533,37 @@ export async function performSwitch(
   targetAccount: string,
   options?: { currentEmail?: string }
 ): Promise<void> {
+  const targetProvider = seq.accounts[targetAccount].identity?.provider;
+  if (targetProvider) {
+    setActiveProvider(targetProvider);
+  }
+  const providerName = targetProvider ?? activeProvider.name;
+  const sequenceFile = getSequenceFile(providerName);
+  const credentialsDir = getCredentialsDir(providerName);
+  const configsDir = getConfigsDir(providerName);
   const targetEmail = seq.accounts[targetAccount].email;
-  const currentEmail = options?.currentEmail ?? getCurrentAccount();
-  const currentAccount = currentEmail === "none"
-    ? null
-    : resolveAccountIdentifier(seq, currentEmail);
+  const observedCurrentIdentity = getCurrentAccountIdentity();
+  const currentIdentity = options?.currentEmail
+    && observedCurrentIdentity
+    && observedCurrentIdentity.email !== options.currentEmail
+      ? null
+      : observedCurrentIdentity;
+  const currentEmail = options?.currentEmail ?? currentIdentity?.email ?? "none";
+  const currentAccount = resolveCurrentManagedAccountForSwitch(
+    seq,
+    currentIdentity,
+    currentEmail
+  );
 
   // Skip only when the real current logged-in account already matches target.
-  if (currentEmail === targetEmail) {
+  if (currentAccount === targetAccount) {
     const account = seq.accounts[targetAccount];
     const aliasStr = account.alias ? ` [${account.alias}]` : "";
     const displayLabel = getDisplayAccountLabel(seq, targetAccount);
     if (seq.activeAccountNumber !== Number(targetAccount)) {
       seq.activeAccountNumber = Number(targetAccount);
       seq.lastUpdated = new Date().toISOString();
-      await writeJsonAtomic(activeSequenceFile, seq);
+      await writeJsonAtomic(sequenceFile, seq);
     }
     console.log(`Already using ${displayLabel} (${account.email})${aliasStr}`);
     return;
@@ -404,7 +585,7 @@ export async function performSwitch(
         currentAccount,
         currentEmail,
         currentCreds,
-        activeCredentialsDir
+        credentialsDir
       );
     }
     if (activeProvider.usesAccountConfig) {
@@ -414,7 +595,7 @@ export async function performSwitch(
           currentAccount,
           currentEmail,
           currentConfig,
-          activeConfigsDir
+          configsDir
         );
       }
     }
@@ -424,12 +605,12 @@ export async function performSwitch(
   const targetCreds = await activeProvider.readAccountAuth(
     targetAccount,
     targetEmail,
-    activeCredentialsDir
+    credentialsDir
   );
   const targetConfig = activeProvider.readAccountConfig(
     targetAccount,
     targetEmail,
-    activeConfigsDir
+    configsDir
   );
 
   if (!targetCreds) {
@@ -454,11 +635,25 @@ export async function performSwitch(
   // Step 5: Update sequence
   seq.activeAccountNumber = Number(targetAccount);
   seq.lastUpdated = new Date().toISOString();
-  await writeJsonAtomic(activeSequenceFile, seq);
+  await writeJsonAtomic(sequenceFile, seq);
 
   const alias = seq.accounts[targetAccount].alias;
   const aliasStr = alias ? ` [${alias}]` : "";
   const displayLabel = getDisplayAccountLabel(seq, targetAccount);
+  const refreshedAccount = activeProvider.getCurrentAccount();
+  if (refreshedAccount) {
+    const refreshedDetails = buildManagedAccountDetails(refreshedAccount);
+    seq.accounts[targetAccount] = {
+      ...seq.accounts[targetAccount],
+      email: refreshedDetails.email,
+      uuid: refreshedDetails.uuid,
+      display: refreshedDetails.display,
+      identity: refreshedDetails.identity ?? seq.accounts[targetAccount].identity,
+      providerMetadata:
+        refreshedDetails.providerMetadata ?? seq.accounts[targetAccount].providerMetadata,
+    };
+    await writeJsonAtomic(sequenceFile, seq);
+  }
   console.log(`Switched to ${displayLabel} (${targetEmail})${aliasStr}`);
   console.log(`\nPlease restart ${getProviderLabel()} to use the new authentication.\n`);
 }
@@ -486,7 +681,8 @@ async function getManagedAccountLinesForActiveProvider(): Promise<string[] | nul
 
   const seq = await loadSequence(activeSequenceFile);
   await syncSequenceActiveAccount(seq);
-  const currentEmail = getCurrentAccount();
+  const currentAccount = getCurrentAccountIdentity();
+  const activeAccountNum = resolveManagedAccount(seq, currentAccount);
 
   return seq.sequence.map((num, index) => {
     const numStr = String(num);
@@ -494,8 +690,8 @@ async function getManagedAccountLinesForActiveProvider(): Promise<string[] | nul
     if (!account) {
       throw new Error(`Corrupt sequence data: missing account entry for id ${numStr}`);
     }
-    const isActive = account.email === currentEmail;
-    let line = `  ${index + 1}: ${account.email}`;
+    const isActive = activeAccountNum === numStr;
+    let line = `  ${index + 1}: ${getAccountDisplayLabel(account)}`;
     if (account.alias) line += ` [${account.alias}]`;
     if (isActive) line += " (active)";
     return line;
@@ -630,6 +826,8 @@ async function cmdStatus(options?: { json?: boolean }): Promise<void> {
       JSON.stringify({
         provider: activeProvider.name,
         email: summary.email === "none" ? null : summary.email,
+        label: summary.email === "none" ? null : summary.label,
+        organizationName: summary.organizationName,
         alias: summary.alias,
         managed: summary.managed,
       })
@@ -640,9 +838,9 @@ async function cmdStatus(options?: { json?: boolean }): Promise<void> {
   if (summary.email === "none") {
     console.log("none");
   } else if (summary.alias) {
-    console.log(`${summary.email} [${summary.alias}]`);
+    console.log(`${summary.label} [${summary.alias}]`);
   } else {
-    console.log(summary.email);
+    console.log(summary.label);
   }
   console.log(`managed accounts: ${summary.managedCount}`);
 }
@@ -652,27 +850,33 @@ async function getStatusSummaryForActiveProvider(): Promise<{
   alias: string | null;
   managed: boolean;
   managedCount: number;
+  label: string;
+  organizationName: string | null;
 }> {
-  const email = getCurrentAccount();
+  const currentAccount = getCurrentAccountIdentity();
+  const email = currentAccount?.email ?? "none";
   let alias: string | null = null;
   let managed = false;
   let managedCount = 0;
+  let label = getCurrentAccountDisplayLabel(currentAccount);
+  let organizationName = currentAccount?.organizationName ?? null;
   if (email !== "none" && existsSync(activeSequenceFile)) {
     const seq = await loadSequence(activeSequenceFile);
     managedCount = Object.keys(seq.accounts).length;
-    for (const account of Object.values(seq.accounts)) {
-      if (account.email === email) {
-        managed = true;
-        alias = account.alias ?? null;
-        break;
-      }
+    const matchedAccountNum = resolveManagedAccount(seq, currentAccount);
+    if (matchedAccountNum) {
+      const account = seq.accounts[matchedAccountNum];
+      managed = true;
+      alias = account.alias ?? null;
+      label = getAccountDisplayLabel(account);
+      organizationName = account.display?.organizationName ?? organizationName;
     }
   } else if (existsSync(activeSequenceFile)) {
     const seq = await loadSequence(activeSequenceFile);
     managedCount = Object.keys(seq.accounts).length;
   }
 
-  return { email, alias, managed, managedCount };
+  return { email, alias, managed, managedCount, label, organizationName };
 }
 
 async function withActiveProvider<T>(
@@ -731,9 +935,9 @@ async function cmdStatusAllProviders(): Promise<void> {
     if (summary.email === "none") {
       console.log("  none");
     } else if (summary.alias) {
-      console.log(`  ${summary.email} [${summary.alias}]`);
+      console.log(`  ${summary.label} [${summary.alias}]`);
     } else {
-      console.log(`  ${summary.email}`);
+      console.log(`  ${summary.label}`);
     }
     console.log(`  managed accounts: ${summary.managedCount}`);
   }
@@ -750,19 +954,35 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
   }
 
   const seq = await loadSequence(activeSequenceFile);
-  if (identifier && /^\d+$/.test(identifier)) {
-    throw new Error("Alias target must be an email, not a number");
-  }
   const currentEmail = getCurrentAccount();
-  const accountNum = resolveAliasTargetAccount(seq, { identifier, currentEmail });
-  if (!accountNum) {
-    if (identifier) {
-      throw new Error(`Account not found: ${identifier}`);
-    } else if (currentEmail === "none") {
-      throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
-    } else {
-      throw new Error(`Current account is not managed: ${currentEmail}`);
+  const currentIdentity = getCurrentAccountIdentity();
+  let accountNum: string | null = null;
+
+  if (identifier) {
+    const target = resolveAccountTarget(seq, identifier);
+    if (target.status === "ambiguous") {
+      throw new Error(`Multiple managed accounts match ${identifier}. Use account number or alias.`);
     }
+    if (target.status === "missing") {
+      throw new Error(`Account not found: ${identifier}`);
+    }
+    accountNum = target.accountNum;
+  } else {
+    accountNum = resolveManagedAccount(seq, currentIdentity);
+    if (!accountNum && currentIdentity?.email && currentIdentity.email !== "none") {
+      if (hasMultipleProviderEmailMatches(seq, currentIdentity.email, activeProvider.name)) {
+        throw new Error(
+          `Multiple managed accounts match ${currentIdentity.email}. Use account number or alias.`
+        );
+      }
+    }
+  }
+
+  if (!accountNum) {
+    if (currentEmail === "none") {
+      throw new Error(`No active ${getProviderLabel()} account found. Please log in first.`);
+    }
+    throw new Error(`Current account is not managed: ${currentEmail}`);
   }
 
   const updated = setAlias(seq, accountNum, alias);
@@ -775,7 +995,9 @@ async function cmdAlias(alias: string, identifier?: string): Promise<void> {
 }
 
 async function cmdInteractiveSwitch(): Promise<void> {
-  const currentEmail = getCurrentAccount();
+  const currentIdentity = getCurrentAccountIdentity();
+  const currentEmail = currentIdentity?.email ?? "none";
+  const currentLabel = getCurrentAccountDisplayLabel(currentIdentity);
   const hasSequence = existsSync(activeSequenceFile);
   const seq = hasSequence ? await loadSequence(activeSequenceFile) : null;
   if (seq) {
@@ -785,7 +1007,7 @@ async function cmdInteractiveSwitch(): Promise<void> {
   if (!seq || seq.sequence.length === 0) {
     const emptyStateChoices = [
       {
-        name: `+ Add current logged-in account${currentEmail === "none" ? "" : ` (${currentEmail})`}`,
+        name: `+ Add current logged-in account${currentEmail === "none" ? "" : ` (${currentLabel})`}`,
         value: ADD_CURRENT_ACCOUNT_CHOICE,
       },
       { name: "Back", value: "__back__" },
@@ -801,9 +1023,14 @@ async function cmdInteractiveSwitch(): Promise<void> {
     return;
   }
 
-  const shouldOfferAddCurrent = currentEmail !== "none" && !accountExists(seq, currentEmail);
+  const shouldOfferAddCurrent = currentEmail !== "none"
+    && currentIdentity?.identityStatus !== "ambiguous"
+    && !accountExists(
+      seq,
+      currentIdentity ?? currentEmail
+    );
   const extraChoices = shouldOfferAddCurrent
-    ? [{ name: `+ Add current logged-in account (${currentEmail})`, value: ADD_CURRENT_ACCOUNT_CHOICE }]
+    ? [{ name: `+ Add current logged-in account (${currentLabel})`, value: ADD_CURRENT_ACCOUNT_CHOICE }]
     : [];
 
   const selected = await pickAccount(
@@ -841,7 +1068,7 @@ Commands:
   <provider> remove [<email>]          Remove an account
   <provider> next                      Rotate to next account
   <provider> status [--json]           Show current active account
-  <provider> alias <name> [<email>]    Set alias for current or target account
+  <provider> alias <name> [<account>]  Set alias for current or target account
   help                                 Show this help
 
 Examples:
@@ -854,6 +1081,8 @@ Examples:
   caflip claude                        Pick Claude account interactively
   caflip claude work                   Switch Claude account by alias
   caflip claude add --alias personal   Add current Claude account with alias
+  caflip claude alias work             Alias the current Claude account as "work"
+  caflip claude alias work 2           Alias Claude Account-2 as "work"
   caflip claude login                  Run Claude login and register session
   caflip claude login -- --email me@example.com --sso
                                        Pass provider-specific flags after --
@@ -861,8 +1090,12 @@ Examples:
   caflip codex list                    List managed Codex accounts
   caflip codex login -- --device-auth  Run Codex login and register session
   caflip codex add --alias work        Add current Codex account with alias
-  caflip codex alias work user@company.com
-                                       Set Codex alias for target email`);
+  caflip codex alias work 2
+                                       Set Codex alias for target account
+
+Alias targets:
+  <account> can be a list number, an existing alias, or an email when it matches exactly one managed account.
+  Codex labels show workspace plans as email · plan(orgShortId); free shows email · free.`);
 }
 
 async function executeProviderCommand(
@@ -916,7 +1149,7 @@ async function executeProviderCommand(
 
     case "alias": {
       if (!args[1]) {
-        console.error(`Usage: caflip ${provider} alias <name> [<email>]`);
+        console.error(`Usage: caflip ${provider} alias <name> [<account>]`);
         process.exit(1);
       }
       await runWithLock(async () => {

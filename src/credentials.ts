@@ -87,7 +87,7 @@ function backupSecretToolAttrs(accountNum: string, email: string): string[] {
 
 export function getClaudeCredentialsDir(
   env: NodeJS.ProcessEnv = process.env,
-  home: string = homedir()
+  home: string = env.HOME ?? homedir()
 ): string {
   const customDir = env.CLAUDE_CONFIG_DIR?.trim();
   if (customDir) {
@@ -98,7 +98,7 @@ export function getClaudeCredentialsDir(
 
 export function getClaudeCredentialsPath(
   env: NodeJS.ProcessEnv = process.env,
-  home: string = homedir()
+  home: string = env.HOME ?? homedir()
 ): string {
   return join(getClaudeCredentialsDir(env, home), ".credentials.json");
 }

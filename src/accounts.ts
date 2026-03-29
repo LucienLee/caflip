@@ -8,7 +8,36 @@ export interface Account {
   uuid: string;
   added: string;
   alias?: string;
+  display?: {
+    email: string;
+    accountName?: string | null;
+    organizationName?: string | null;
+    planType?: string | null;
+    role?: string | null;
+    label: string;
+  };
+  identity?: {
+    provider: "claude" | "codex";
+    accountId: string | null;
+    organizationId: string | null;
+    uniqueKey: string;
+  };
+  providerMetadata?: Record<string, unknown>;
+  legacyUuid?: string;
 }
+
+export interface ManagedAccountLookup {
+  provider?: "claude" | "codex";
+  email: string;
+  accountId?: string;
+  organizationId?: string;
+  uniqueKey?: string;
+}
+
+export type AccountTargetResolution =
+  | { status: "resolved"; accountNum: string }
+  | { status: "ambiguous"; matches: string[] }
+  | { status: "missing" };
 
 export interface SequenceData {
   activeAccountNumber: number | null;
@@ -22,6 +51,39 @@ export type PostRemovalAction =
   | { type: "switch"; targetAccountNumber: string }
   | { type: "logout" };
 
+function getShortOrganizationId(organizationId: string): string {
+  return organizationId.slice(0, 10);
+}
+
+export function getManagedAccountLabel(account: Pick<Account, "email" | "display" | "identity">): string {
+  const provider = account.identity?.provider;
+  const organizationId = account.identity?.organizationId;
+  const organizationName = account.display?.organizationName;
+  const planType = account.display?.planType;
+
+  if (provider === "codex") {
+    if (planType === "free") {
+      return `${account.email} · free`;
+    }
+    const orgShortId = organizationId ? getShortOrganizationId(organizationId) : null;
+    if (planType && orgShortId) {
+      return `${account.email} · ${planType}(${orgShortId})`;
+    }
+    if (orgShortId) {
+      return `${account.email} · ${orgShortId}`;
+    }
+    if (planType) {
+      return `${account.email} · ${planType}`;
+    }
+  }
+
+  if (organizationName) {
+    return `${account.email} · ${organizationName}`;
+  }
+
+  return account.email;
+}
+
 export async function initSequenceFile(path: string): Promise<void> {
   if (existsSync(path)) return;
   const data: SequenceData = {
@@ -34,7 +96,36 @@ export async function initSequenceFile(path: string): Promise<void> {
 }
 
 export async function loadSequence(path: string): Promise<SequenceData> {
-  return JSON.parse(readFileSync(path, "utf-8")) as SequenceData;
+  const raw = JSON.parse(readFileSync(path, "utf-8")) as SequenceData;
+  const accounts = Object.fromEntries(
+    Object.entries(raw.accounts).map(([num, account]) => {
+      const display = account.display ?? {
+        email: account.email,
+        accountName: null,
+        organizationName: null,
+        planType: null,
+        role: null,
+        label: account.email,
+      };
+      display.label = getManagedAccountLabel({
+        email: account.email,
+        display,
+        identity: account.identity,
+      });
+      return [
+        num,
+        {
+          ...account,
+          display,
+          legacyUuid: account.legacyUuid ?? (account.identity ? undefined : account.uuid),
+        },
+      ];
+    })
+  );
+  return {
+    ...raw,
+    accounts,
+  };
 }
 
 export function getNextAccountNumber(seq: SequenceData): number {
@@ -43,13 +134,27 @@ export function getNextAccountNumber(seq: SequenceData): number {
   return Math.max(...keys) + 1;
 }
 
-export function accountExists(seq: SequenceData, email: string): boolean {
-  return Object.values(seq.accounts).some((a) => a.email === email);
+export function accountExists(
+  seq: SequenceData,
+  identifier: string | ManagedAccountLookup
+): boolean {
+  if (typeof identifier === "string") {
+    return Object.values(seq.accounts).some((a) => a.email === identifier);
+  }
+
+  return resolveManagedAccount(seq, identifier) !== null;
 }
 
 export function addAccountToSequence(
   seq: SequenceData,
-  info: { email: string; uuid: string; alias?: string }
+  info: {
+    email: string;
+    uuid: string;
+    alias?: string;
+    display?: Account["display"];
+    identity?: Account["identity"];
+    providerMetadata?: Account["providerMetadata"];
+  }
 ): SequenceData {
   const num = getNextAccountNumber(seq);
   const numStr = String(num);
@@ -60,6 +165,15 @@ export function addAccountToSequence(
   };
   if (info.alias) {
     account.alias = info.alias;
+  }
+  if (info.display) {
+    account.display = info.display;
+  }
+  if (info.identity) {
+    account.identity = info.identity;
+  }
+  if (info.providerMetadata) {
+    account.providerMetadata = info.providerMetadata;
   }
   return {
     ...seq,
@@ -126,6 +240,47 @@ export function resolveManagedAccountNumberForEmail(
   return Number(accountNum);
 }
 
+export function resolveManagedAccountNumber(
+  seq: SequenceData,
+  currentAccount: ManagedAccountLookup | null
+): number | null {
+  const resolved = resolveManagedAccount(seq, currentAccount);
+  return resolved === null ? null : Number(resolved);
+}
+
+export function resolveManagedAccount(
+  seq: SequenceData,
+  currentAccount: ManagedAccountLookup | null
+): string | null {
+  if (!currentAccount?.email || currentAccount.email === "none") {
+    return null;
+  }
+
+  if (currentAccount.uniqueKey) {
+    for (const [accountNum, account] of Object.entries(seq.accounts)) {
+      if (account.identity?.uniqueKey === currentAccount.uniqueKey) {
+        return accountNum;
+      }
+    }
+  }
+
+  const emailMatches = Object.entries(seq.accounts).filter(([, account]) => {
+    if (account.email !== currentAccount.email) {
+      return false;
+    }
+    if (!currentAccount.provider) {
+      return true;
+    }
+    return !account.identity || account.identity.provider === currentAccount.provider;
+  });
+  if (emailMatches.length !== 1) {
+    return null;
+  }
+
+  const [accountNum, account] = emailMatches[0];
+  return account.identity ? null : accountNum;
+}
+
 export function getNextInSequence(seq: SequenceData): number {
   const currentIndex = seq.sequence.indexOf(seq.activeAccountNumber!);
   const nextIndex = (currentIndex + 1) % seq.sequence.length;
@@ -148,9 +303,11 @@ export function resolveAccountIdentifier(
     return null;
   }
 
-  // Search by email
-  for (const [num, account] of Object.entries(seq.accounts)) {
-    if (account.email === identifier) return num;
+  const emailMatches = Object.entries(seq.accounts).filter(
+    ([, account]) => account.email === identifier
+  );
+  if (emailMatches.length === 1) {
+    return emailMatches[0][0];
   }
 
   return null;
@@ -161,18 +318,40 @@ export function resolveAliasTargetAccount(
   options: { identifier?: string; currentEmail?: string }
 ): string | null {
   if (options.identifier) {
-    if (/^\d+$/.test(options.identifier)) {
-      return null;
-    }
-    for (const [num, account] of Object.entries(seq.accounts)) {
-      if (account.email === options.identifier) return num;
-    }
-    return null;
+    const target = resolveAccountTarget(seq, options.identifier);
+    return target.status === "resolved" ? target.accountNum : null;
   }
   if (!options.currentEmail || options.currentEmail === "none") {
     return null;
   }
   return resolveAccountIdentifier(seq, options.currentEmail);
+}
+
+export function resolveAccountTarget(
+  seq: SequenceData,
+  identifier: string
+): AccountTargetResolution {
+  if (/^\d+$/.test(identifier)) {
+    const resolved = resolveAccountIdentifier(seq, identifier);
+    return resolved ? { status: "resolved", accountNum: resolved } : { status: "missing" };
+  }
+
+  const aliasMatch = findAccountByAlias(seq, identifier);
+  if (aliasMatch) {
+    return { status: "resolved", accountNum: aliasMatch };
+  }
+
+  const emailMatches = Object.entries(seq.accounts)
+    .filter(([, account]) => account.email === identifier)
+    .map(([accountNum]) => accountNum);
+  if (emailMatches.length === 1) {
+    return { status: "resolved", accountNum: emailMatches[0] };
+  }
+  if (emailMatches.length > 1) {
+    return { status: "ambiguous", matches: emailMatches };
+  }
+
+  return { status: "missing" };
 }
 
 export function getDisplayAccountNumber(

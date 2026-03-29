@@ -8,8 +8,12 @@ import type { ProviderName } from "./providers/types";
 
 export type Platform = "macos" | "linux" | "wsl" | "windows" | "unknown";
 
+function getHomeDir(): string {
+  return process.env.HOME ?? homedir();
+}
+
 export function getBackupDir(provider: ProviderName): string {
-  return join(homedir(), ".caflip-backup", provider);
+  return join(getHomeDir(), ".caflip-backup", provider);
 }
 
 export function getSequenceFile(provider: ProviderName): string {
@@ -62,7 +66,7 @@ export function detectPlatform(): Platform {
 
 export function getClaudeConfigDir(
   env: NodeJS.ProcessEnv = process.env,
-  home: string = homedir()
+  home: string = env.HOME ?? homedir()
 ): string {
   const customDir = env.CLAUDE_CONFIG_DIR?.trim();
   if (customDir) {
@@ -73,7 +77,7 @@ export function getClaudeConfigDir(
 
 export function getClaudeConfigPath(
   env: NodeJS.ProcessEnv = process.env,
-  home: string = homedir()
+  home: string = env.HOME ?? homedir()
 ): string {
   const customDir = env.CLAUDE_CONFIG_DIR?.trim();
   if (customDir) {

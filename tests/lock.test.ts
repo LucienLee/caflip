@@ -28,7 +28,7 @@ describe("lock cleanup", () => {
     rmSync(testHome, { recursive: true, force: true });
   });
 
-  test("ccflip alias with invalid numeric target releases lock", async () => {
+  test("ccflip alias with ambiguous same-email target releases lock", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "ccflip-lock-test-"));
     const backupDir = join(testHome, ".caflip-backup/claude");
     const lockPath = join(backupDir, ".lock");
@@ -40,8 +40,89 @@ describe("lock cleanup", () => {
         {
           activeAccountNumber: 2,
           lastUpdated: "2026-02-21T00:00:00.000Z",
-          sequence: [2],
+          sequence: [1, 2],
           accounts: {
+            "1": {
+              email: "work@test.com",
+              uuid: "claude:acct-1:org-a",
+              added: "2026-02-21T00:00:00.000Z",
+              identity: {
+                provider: "claude",
+                accountId: "acct-1",
+                organizationId: "org-a",
+                uniqueKey: "claude:acct-1:org-a",
+              },
+              display: {
+                email: "work@test.com",
+                accountName: null,
+                organizationName: "Org A",
+                planType: null,
+                role: "member",
+                label: "work@test.com · Org A",
+              },
+            },
+            "2": {
+              email: "work@test.com",
+              uuid: "claude:acct-1:org-b",
+              added: "2026-02-21T00:00:00.000Z",
+              identity: {
+                provider: "claude",
+                accountId: "acct-1",
+                organizationId: "org-b",
+                uniqueKey: "claude:acct-1:org-b",
+              },
+              display: {
+                email: "work@test.com",
+                accountName: null,
+                organizationName: "Org B",
+                planType: null,
+                role: "member",
+                label: "work@test.com · Org B",
+              },
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "alias", "work", "work@test.com"], {
+      cwd: process.cwd(),
+      env: { ...process.env, HOME: testHome },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Multiple managed accounts match work@test.com");
+    expect(existsSync(lockPath)).toBe(false);
+
+    rmSync(testHome, { recursive: true, force: true });
+  });
+
+  test("ccflip alias accepts UI account index targets", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "ccflip-lock-test-"));
+    const backupDir = join(testHome, ".caflip-backup/claude");
+    mkdirSync(backupDir, { recursive: true, mode: 0o700 });
+
+    await Bun.write(
+      join(backupDir, "sequence.json"),
+      JSON.stringify(
+        {
+          activeAccountNumber: 1,
+          lastUpdated: "2026-02-21T00:00:00.000Z",
+          sequence: [1, 2],
+          accounts: {
+            "1": {
+              email: "personal@test.com",
+              uuid: "u-1",
+              added: "2026-02-21T00:00:00.000Z",
+            },
             "2": {
               email: "work@test.com",
               uuid: "u-2",
@@ -54,20 +135,21 @@ describe("lock cleanup", () => {
       )
     );
 
-    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "alias", "work", "1"], {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "claude", "alias", "work", "2"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: testHome },
       stdout: "pipe",
       stderr: "pipe",
     });
 
-    const [exitCode, stderr] = await Promise.all([
+    const [exitCode, stdout, stderr] = await Promise.all([
       proc.exited,
+      new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    expect(exitCode).toBe(1);
-    expect(stderr).toContain("Alias target must be an email, not a number");
-    expect(existsSync(lockPath)).toBe(false);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain('Alias "work" set for Account-2 (work@test.com)');
 
     rmSync(testHome, { recursive: true, force: true });
   });

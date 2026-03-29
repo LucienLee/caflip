@@ -3,7 +3,7 @@
 
 import readline from "node:readline";
 import { select, confirm } from "@inquirer/prompts";
-import type { SequenceData } from "./accounts";
+import { getManagedAccountLabel, type SequenceData } from "./accounts";
 import type { ProviderName } from "./providers/types";
 
 type SelectPrompt = (args: {
@@ -75,14 +75,14 @@ async function wrapPromptCancellation<T>(fn: () => Promise<T>): Promise<T> {
 // Format an account entry for display.
 function formatAccount(
   num: string,
-  email: string,
+  label: string,
   alias?: string,
   isActive?: boolean
 ): string {
-  let label = `${num}: ${email}`;
-  if (alias) label += ` [${alias}]`;
-  if (isActive) label += " (active)";
-  return label;
+  let formatted = `${num}: ${label}`;
+  if (alias) formatted += ` [${alias}]`;
+  if (isActive) formatted += " (active)";
+  return formatted;
 }
 
 // Show interactive account picker, returns selected account number.
@@ -101,7 +101,12 @@ export async function pickAccount(
       }
       const isActive = num === seq.activeAccountNumber;
       return {
-        name: formatAccount(String(index + 1), account.email, account.alias, isActive),
+        name: formatAccount(
+          String(index + 1),
+          getManagedAccountLabel(account),
+          account.alias,
+          isActive
+        ),
         value: numStr,
       };
     }),
