@@ -196,28 +196,23 @@ function getCurrentAccountDisplayLabel(currentAccount: ProviderCurrentAccount | 
   if (!currentAccount) {
     return "none";
   }
-
-  if (activeProvider.name === "codex") {
-    if (currentAccount.planType === "free") {
-      return `${currentAccount.email} · free`;
-    }
-    const orgShortId = currentAccount.organizationId?.slice(0, 10) ?? null;
-    if (currentAccount.planType && orgShortId) {
-      return `${currentAccount.email} · ${currentAccount.planType}(${orgShortId})`;
-    }
-    if (orgShortId) {
-      return `${currentAccount.email} · ${orgShortId}`;
-    }
-    if (currentAccount.planType) {
-      return `${currentAccount.email} · ${currentAccount.planType}`;
-    }
-  }
-
-  if (currentAccount.organizationName) {
-    return `${currentAccount.email} · ${currentAccount.organizationName}`;
-  }
-
-  return currentAccount.email;
+  return getManagedAccountLabel({
+    email: currentAccount.email,
+    display: {
+      email: currentAccount.email,
+      accountName: currentAccount.accountName ?? null,
+      organizationName: currentAccount.organizationName ?? null,
+      planType: currentAccount.planType ?? null,
+      role: currentAccount.role ?? null,
+      label: "",
+    },
+    identity: {
+      provider: activeProvider.name,
+      accountId: currentAccount.accountId ?? null,
+      organizationId: currentAccount.organizationId ?? null,
+      uniqueKey: "",
+    },
+  });
 }
 
 function buildManagedAccountDetails(currentAccount: ProviderCurrentAccount | null) {

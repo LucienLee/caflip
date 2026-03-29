@@ -218,6 +218,28 @@ describe("addAccountToSequence", () => {
       })
     ).toBe("user@test.com · free");
   });
+
+  test("claude personal organization labels are simplified", () => {
+    expect(
+      getManagedAccountLabel({
+        email: "hi.lucienlee@gmail.com",
+        identity: {
+          provider: "claude",
+          accountId: "acct-1",
+          organizationId: "org-1",
+          uniqueKey: "claude:acct-1:org-1",
+        },
+        display: {
+          email: "hi.lucienlee@gmail.com",
+          accountName: null,
+          organizationName: "hi.lucienlee@gmail.com's Organization",
+          planType: null,
+          role: null,
+          label: "ignored",
+        },
+      })
+    ).toBe("hi.lucienlee@gmail.com · Personal");
+  });
 });
 
 describe("removeAccountFromSequence", () => {

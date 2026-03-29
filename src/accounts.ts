@@ -55,10 +55,25 @@ function getShortOrganizationId(organizationId: string): string {
   return organizationId.slice(0, 10);
 }
 
+function normalizeClaudeOrganizationName(email: string, organizationName: string | null | undefined): string | null {
+  if (!organizationName) {
+    return null;
+  }
+
+  if (organizationName === `${email}'s Organization`) {
+    return "Personal";
+  }
+
+  return organizationName;
+}
+
 export function getManagedAccountLabel(account: Pick<Account, "email" | "display" | "identity">): string {
   const provider = account.identity?.provider;
   const organizationId = account.identity?.organizationId;
-  const organizationName = account.display?.organizationName;
+  const organizationName =
+    provider === "claude"
+      ? normalizeClaudeOrganizationName(account.email, account.display?.organizationName)
+      : account.display?.organizationName;
   const planType = account.display?.planType;
 
   if (provider === "codex") {
