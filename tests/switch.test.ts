@@ -222,7 +222,6 @@ describe("performSwitch", () => {
   });
 
   test("backs up the current same-email workspace before switching to another workspace", async () => {
-    const { performSwitch } = await import("../src/index");
     const testHome = mkdtempSync(join(tmpdir(), "caflip-switch-workspace-"));
     const fakeBinDir = mkdtempSync(join(tmpdir(), "caflip-switch-bin-"));
     const securityStoreDir = join(testHome, "keychain");
@@ -329,17 +328,47 @@ describe("performSwitch", () => {
     };
 
     const logSpy = spyOn(console, "log");
+    logSpy.mockRestore();
 
-    await performSwitch(seq, "2", { currentEmail: "same@test.com" });
+    const proc = Bun.spawn(
+      ["bun", "run", "tests/helpers/run-perform-switch.ts"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          HOME: testHome,
+          PATH: `${fakeBinDir}:${ORIGINAL_ENV.PATH ?? ""}`,
+          USER: "test-user",
+          CAFLIP_PERFORM_SWITCH_PAYLOAD: JSON.stringify({
+            seq,
+            targetAccount: "2",
+            currentEmail: "same@test.com",
+          }),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
 
-    expect(seq.activeAccountNumber).toBe(2);
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const storedSequence = JSON.parse(
+      readFileSync(join(backupDir, "sequence.json"), "utf-8")
+    ) as SequenceData;
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("Switched to Account-2");
+    expect(stdout).not.toContain("Already using");
+    expect(storedSequence.activeAccountNumber).toBe(2);
     expect(readFileSync(join(securityStoreDir, "Claude_Code-Account-1-same_test_com"), "utf-8"))
       .toContain("active-org-a");
     expect(readFileSync(join(claudeDir, ".claude.json"), "utf-8"))
       .toContain('"organizationUuid": "org-b"');
-    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining("Already using"));
 
-    logSpy.mockRestore();
     rmSync(testHome, { recursive: true, force: true });
     rmSync(fakeBinDir, { recursive: true, force: true });
   });
