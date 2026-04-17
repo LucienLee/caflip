@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import type { SequenceData } from "../src/accounts";
+import { detectPlatform } from "../src/config";
 import { makeJwt } from "./helpers/provider-fixtures";
 
 const ORIGINAL_ENV = {
@@ -227,9 +228,11 @@ describe("performSwitch", () => {
     const securityStoreDir = join(testHome, "keychain");
     const claudeDir = join(testHome, ".claude");
     const backupDir = join(testHome, ".caflip-backup", "claude");
+    const credentialsBackupDir = join(backupDir, "credentials");
     const configBackupDir = join(backupDir, "configs");
 
     mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
+    mkdirSync(credentialsBackupDir, { recursive: true, mode: 0o700 });
     mkdirSync(configBackupDir, { recursive: true, mode: 0o700 });
     mkdirSync(fakeBinDir, { recursive: true, mode: 0o700 });
     mkdirSync(securityStoreDir, { recursive: true, mode: 0o700 });
@@ -261,7 +264,15 @@ describe("performSwitch", () => {
       JSON.stringify({ accessToken: "active-org-a" })
     );
     writeFileSync(
+      join(claudeDir, ".credentials.json"),
+      JSON.stringify({ accessToken: "active-org-a" })
+    );
+    writeFileSync(
       join(securityStoreDir, "Claude_Code-Account-2-same_test_com"),
+      JSON.stringify({ accessToken: "backup-org-b" })
+    );
+    writeFileSync(
+      join(credentialsBackupDir, ".claude-credentials-2-same@test.com.json"),
       JSON.stringify({ accessToken: "backup-org-b" })
     );
     writeFileSync(
@@ -329,9 +340,10 @@ describe("performSwitch", () => {
 
     const logSpy = spyOn(console, "log");
     logSpy.mockRestore();
+    const bunBinary = Bun.which("bun") ?? process.execPath;
 
     const proc = Bun.spawn(
-      ["bun", "run", "tests/helpers/run-perform-switch.ts"],
+      [bunBinary, "run", "tests/helpers/run-perform-switch.ts"],
       {
         cwd: process.cwd(),
         env: {
@@ -355,16 +367,25 @@ describe("performSwitch", () => {
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    const storedSequence = JSON.parse(
-      readFileSync(join(backupDir, "sequence.json"), "utf-8")
-    ) as SequenceData;
 
-    expect(exitCode).toBe(0);
+    if (exitCode !== 0) {
+      throw new Error(
+        `performSwitch subprocess failed with exit ${exitCode}\nstdout:\n${stdout}\nstderr:\n${stderr}`
+      );
+    }
     expect(stderr).toBe("");
     expect(stdout).toContain("Switched to Account-2");
     expect(stdout).not.toContain("Already using");
+
+    const storedSequence = JSON.parse(
+      readFileSync(join(backupDir, "sequence.json"), "utf-8")
+    ) as SequenceData;
+    const currentBackupPath = detectPlatform() === "macos"
+      ? join(securityStoreDir, "Claude_Code-Account-1-same_test_com")
+      : join(credentialsBackupDir, ".claude-credentials-1-same@test.com.json");
+
     expect(storedSequence.activeAccountNumber).toBe(2);
-    expect(readFileSync(join(securityStoreDir, "Claude_Code-Account-1-same_test_com"), "utf-8"))
+    expect(readFileSync(currentBackupPath, "utf-8"))
       .toContain("active-org-a");
     expect(readFileSync(join(claudeDir, ".claude.json"), "utf-8"))
       .toContain('"organizationUuid": "org-b"');
