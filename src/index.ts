@@ -508,6 +508,40 @@ async function registerCurrentActiveAccount(options?: {
   };
 }
 
+async function refreshCurrentManagedBackup(
+  currentAccountNum: string | null,
+  currentEmail: string,
+  credentialsDir: string,
+  configsDir: string
+): Promise<string | null> {
+  if (currentEmail === "none" || !currentAccountNum) {
+    return currentAccountNum;
+  }
+
+  const currentCreds = await activeProvider.readActiveAuth();
+  if (currentCreds) {
+    await activeProvider.writeAccountAuth(
+      currentAccountNum,
+      currentEmail,
+      currentCreds,
+      credentialsDir
+    );
+  }
+  if (activeProvider.usesAccountConfig) {
+    const currentConfig = await activeProvider.readActiveConfig();
+    if (currentConfig) {
+      await activeProvider.writeAccountConfig(
+        currentAccountNum,
+        currentEmail,
+        currentConfig,
+        configsDir
+      );
+    }
+  }
+
+  return currentAccountNum;
+}
+
 function getLoginPassthroughArgs(args: string[]): string[] {
   const passthroughIdx = args.indexOf("--");
   if (passthroughIdx === -1) {
@@ -571,32 +605,14 @@ export async function performSwitch(
     throw new Error("Current account email is not safe for storage");
   }
 
-  // Step 1: Backup current account
-  if (currentEmail !== "none" && currentAccount) {
-    const currentCreds = await activeProvider.readActiveAuth();
+  await refreshCurrentManagedBackup(
+    currentAccount,
+    currentEmail,
+    credentialsDir,
+    configsDir
+  );
 
-    if (currentCreds) {
-      await activeProvider.writeAccountAuth(
-        currentAccount,
-        currentEmail,
-        currentCreds,
-        credentialsDir
-      );
-    }
-    if (activeProvider.usesAccountConfig) {
-      const currentConfig = await activeProvider.readActiveConfig();
-      if (currentConfig) {
-        await activeProvider.writeAccountConfig(
-          currentAccount,
-          currentEmail,
-          currentConfig,
-          configsDir
-        );
-      }
-    }
-  }
-
-  // Step 2: Restore target account
+  // Step 1: Restore target account
   const targetCreds = await activeProvider.readAccountAuth(
     targetAccount,
     targetEmail,
@@ -619,15 +635,15 @@ export async function performSwitch(
     );
   }
 
-  // Step 3: Write target credentials
+  // Step 2: Write target credentials
   await activeProvider.writeActiveAuth(targetCreds);
 
-  // Step 4: Provider-specific config restore
+  // Step 3: Provider-specific config restore
   if (targetConfig) {
     await activeProvider.writeActiveConfig(targetConfig);
   }
 
-  // Step 5: Update sequence
+  // Step 4: Update sequence
   seq.activeAccountNumber = Number(targetAccount);
   seq.lastUpdated = new Date().toISOString();
   await writeJsonAtomic(sequenceFile, seq);
@@ -694,15 +710,12 @@ async function getManagedAccountLinesForActiveProvider(): Promise<string[] | nul
 }
 
 async function cmdAdd(alias?: string): Promise<void> {
-  const result = await registerCurrentActiveAccount({ alias, updateIfExists: false });
-  if (result.action === "unchanged") {
-    return;
-  }
-
+  const result = await registerCurrentActiveAccount({ alias, updateIfExists: true });
   const seq = await loadSequence(activeSequenceFile);
   const displayLabel = getDisplayAccountLabel(seq, result.accountNum);
   const aliasStr = alias ? ` [${alias}]` : "";
-  console.log(`Added ${displayLabel}: ${result.email}${aliasStr}`);
+  const verb = result.action === "updated" ? "Updated" : "Added";
+  console.log(`${verb} ${displayLabel}: ${result.email}${aliasStr}`);
 }
 
 async function cmdLogin(args: string[]): Promise<void> {

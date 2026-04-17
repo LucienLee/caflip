@@ -272,7 +272,7 @@ describe("provider login command", () => {
     rmSync(testHome, { recursive: true, force: true });
   });
 
-  test("existing account add with alias does not print false added message", async () => {
+  test("existing account add refreshes backup and reports updated", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "caflip-add-existing-home-"));
     const fakeBinDir = mkdtempSync(join(tmpdir(), "caflip-add-existing-bin-"));
     writeFakeCodexBinary(fakeBinDir, "codex-existing@test.com", "acct-existing");
@@ -293,7 +293,9 @@ describe("provider login command", () => {
     );
 
     const backupDir = join(testHome, ".caflip-backup", "codex");
+    const credentialsDir = join(backupDir, "credentials");
     mkdirSync(backupDir, { recursive: true, mode: 0o700 });
+    mkdirSync(credentialsDir, { recursive: true, mode: 0o700 });
     writeFileSync(
       join(backupDir, "sequence.json"),
       JSON.stringify({
@@ -309,6 +311,8 @@ describe("provider login command", () => {
         },
       })
     );
+    const backupPath = join(credentialsDir, ".codex-auth-1-codex-existing@test.com.json");
+    writeFileSync(backupPath, "{\"stale\":true}");
 
     const proc = Bun.spawn(
       ["bun", "run", "src/index.ts", "codex", "add", "--alias", "work"],
@@ -332,13 +336,16 @@ describe("provider login command", () => {
 
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toContain("Account codex-existing@test.com is already managed.");
+    expect(stdout).toContain("Updated Account-1: codex-existing@test.com [work]");
     expect(stdout).not.toContain("Added ");
 
     const seq = JSON.parse(readFileSync(join(backupDir, "sequence.json"), "utf-8")) as {
       accounts: Record<string, { alias?: string }>;
     };
-    expect(seq.accounts["1"].alias).toBeUndefined();
+    expect(seq.accounts["1"].alias).toBe("work");
+    const refreshedBackup = readFileSync(backupPath, "utf-8");
+    expect(refreshedBackup).toContain("acct-existing");
+    expect(refreshedBackup).not.toContain("\"stale\":true");
 
     rmSync(testHome, { recursive: true, force: true });
     rmSync(fakeBinDir, { recursive: true, force: true });

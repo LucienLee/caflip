@@ -460,6 +460,229 @@ describe("performSwitch", () => {
     rmSync(testHome, { recursive: true, force: true });
   });
 
+  test("codex next refreshes current account backup before switching", async () => {
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-codex-switch-refresh-"));
+    const credentialsDir = join(testHome, ".caflip-backup", "codex", "credentials");
+    mkdirSync(join(testHome, ".codex"), { recursive: true, mode: 0o700 });
+    mkdirSync(credentialsDir, { recursive: true, mode: 0o700 });
+
+    writeFileSync(
+      join(testHome, ".codex", "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          id_token: makeJwt({
+            email: "same@test.com",
+            "https://api.openai.com/auth": {
+              chatgpt_account_id: "acct-1",
+              chatgpt_plan_type: "team",
+              organizations: [
+                { id: "org-a", title: "Workspace A", role: "owner", is_default: true },
+              ],
+            },
+          }),
+          access_token: "active-token-a",
+          refresh_token: "active-refresh-a",
+          account_id: "acct-1",
+        },
+      })
+    );
+
+    writeFileSync(
+      join(testHome, ".caflip-backup", "codex", "sequence.json"),
+      JSON.stringify(
+        {
+          activeAccountNumber: 1,
+          lastUpdated: "2026-03-24T00:00:00.000Z",
+          sequence: [1, 2],
+          accounts: {
+            "1": {
+              email: "same@test.com",
+              uuid: "codex:acct-1:org-a",
+              added: "2026-03-24T00:00:00.000Z",
+              identity: {
+                provider: "codex",
+                accountId: "acct-1",
+                organizationId: "org-a",
+                uniqueKey: "codex:acct-1:org-a",
+              },
+              display: {
+                email: "same@test.com",
+                accountName: null,
+                organizationName: "Workspace A",
+                planType: "team",
+                role: "owner",
+                label: "same@test.com · Workspace A",
+              },
+            },
+            "2": {
+              email: "same@test.com",
+              uuid: "codex:acct-1:org-b",
+              added: "2026-03-24T00:00:00.000Z",
+              identity: {
+                provider: "codex",
+                accountId: "acct-1",
+                organizationId: "org-b",
+                uniqueKey: "codex:acct-1:org-b",
+              },
+              display: {
+                email: "same@test.com",
+                accountName: null,
+                organizationName: "Workspace B",
+                planType: "team",
+                role: "owner",
+                label: "same@test.com · Workspace B",
+              },
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const currentBackupPath = join(credentialsDir, ".codex-auth-1-same@test.com.json");
+    const targetBackupPath = join(credentialsDir, ".codex-auth-2-same@test.com.json");
+    writeFileSync(currentBackupPath, "{\"stale\":true}");
+    writeFileSync(
+      targetBackupPath,
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          id_token: makeJwt({
+            email: "same@test.com",
+            "https://api.openai.com/auth": {
+              chatgpt_account_id: "acct-1",
+              chatgpt_plan_type: "team",
+              organizations: [
+                { id: "org-b", title: "Workspace B", role: "owner", is_default: true },
+              ],
+            },
+          }),
+          access_token: "backup-token-b",
+          refresh_token: "backup-refresh-b",
+          account_id: "acct-1",
+        },
+      })
+    );
+
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "codex", "next"], {
+      cwd: process.cwd(),
+      env: { ...process.env, HOME: testHome },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stderr).text(),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(readFileSync(currentBackupPath, "utf-8")).toContain("active-token-a");
+    expect(readFileSync(currentBackupPath, "utf-8")).not.toContain("\"stale\":true");
+    expect(readFileSync(join(testHome, ".codex", "auth.json"), "utf-8")).toContain("backup-token-b");
+
+    rmSync(testHome, { recursive: true, force: true });
+  });
+
+  test("performSwitch refreshes the actual current codex account when sequence active is stale", async () => {
+    const { performSwitch } = await import("../src/index");
+    const testHome = mkdtempSync(join(tmpdir(), "caflip-codex-switch-stale-seq-"));
+    const credentialsDir = join(testHome, ".caflip-backup", "codex", "credentials");
+    mkdirSync(join(testHome, ".codex"), { recursive: true, mode: 0o700 });
+    mkdirSync(credentialsDir, { recursive: true, mode: 0o700 });
+
+    process.env.HOME = testHome;
+
+    writeFileSync(
+      join(testHome, ".codex", "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          id_token: makeJwt({
+            email: "same@test.com",
+            "https://api.openai.com/auth": {
+              chatgpt_account_id: "acct-1",
+              chatgpt_plan_type: "team",
+              organizations: [
+                { id: "org-b", title: "Workspace B", role: "owner", is_default: true },
+              ],
+            },
+          }),
+          access_token: "active-token-b",
+          refresh_token: "active-refresh-b",
+          account_id: "acct-1",
+        },
+      })
+    );
+
+    const seq: SequenceData = {
+      activeAccountNumber: 1,
+      lastUpdated: "2026-03-24T00:00:00.000Z",
+      sequence: [1, 2],
+      accounts: {
+        "1": {
+          email: "same@test.com",
+          uuid: "codex:acct-1:org-a",
+          added: "2026-03-24T00:00:00.000Z",
+          identity: {
+            provider: "codex",
+            accountId: "acct-1",
+            organizationId: "org-a",
+            uniqueKey: "codex:acct-1:org-a",
+          },
+          display: {
+            email: "same@test.com",
+            accountName: null,
+            organizationName: "Workspace A",
+            planType: "team",
+            role: "owner",
+            label: "same@test.com · Workspace A",
+          },
+        },
+        "2": {
+          email: "same@test.com",
+          uuid: "codex:acct-1:org-b",
+          added: "2026-03-24T00:00:00.000Z",
+          identity: {
+            provider: "codex",
+            accountId: "acct-1",
+            organizationId: "org-b",
+            uniqueKey: "codex:acct-1:org-b",
+          },
+          display: {
+            email: "same@test.com",
+            accountName: null,
+            organizationName: "Workspace B",
+            planType: "team",
+            role: "owner",
+            label: "same@test.com · Workspace B",
+          },
+        },
+      },
+    };
+
+    const accountABackupPath = join(credentialsDir, ".codex-auth-1-same@test.com.json");
+    const accountBBackupPath = join(credentialsDir, ".codex-auth-2-same@test.com.json");
+    writeFileSync(
+      accountABackupPath,
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: { access_token: "backup-token-a", refresh_token: "backup-refresh-a", account_id: "acct-1" },
+      })
+    );
+    writeFileSync(accountBBackupPath, "{\"stale\":true}");
+
+    await performSwitch(seq, "1");
+
+    expect(readFileSync(accountABackupPath, "utf-8")).toContain("backup-token-a");
+    expect(readFileSync(accountBBackupPath, "utf-8")).toContain("active-token-b");
+    expect(readFileSync(accountBBackupPath, "utf-8")).not.toContain("\"stale\":true");
+    expect(readFileSync(join(testHome, ".codex", "auth.json"), "utf-8")).toContain("backup-token-a");
+  });
+
   test("codex next rejects switching when current account identity is partial and only email-matches a normalized account", async () => {
     const testHome = mkdtempSync(join(tmpdir(), "caflip-switch-partial-current-"));
     mkdirSync(join(testHome, ".codex"), { recursive: true, mode: 0o700 });
